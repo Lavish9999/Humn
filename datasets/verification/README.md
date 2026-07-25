@@ -104,3 +104,5 @@ Interpretation rules:
 - Provider metrics exclude unavailable/error responses and separately report provider coverage.
 - Combined-rule metrics treat ESCALATE as abstention, not as a correct prediction.
 - Tune on a training split and report final numbers on a held-out test split. Do not repeatedly tune against the same test set.
+
+The benchmark TypeScript is compiled in the dedicated `Verification benchmark harness` GitHub Actions workflow on every relevant pull-request change.
