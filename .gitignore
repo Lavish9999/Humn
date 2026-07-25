@@ -17,3 +17,9 @@ backups/
 **/.env
 **/.env.*
 !**/.env.example
+
+# Detector accuracy benchmark inputs and generated outputs
+.verification-benchmark-cache/
+reports/verification-benchmark/
+datasets/verification/manifest.jsonl
+datasets/verification/images/
