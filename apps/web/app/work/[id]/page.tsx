@@ -8,10 +8,37 @@ import { getWorkById } from '../../../lib/data/works';
 import { getCollectionSaveContext } from '../../../lib/data/collections';
 import { pluralize } from '../../../lib/pluralize';
 import { FollowButton } from '../../../components/follow-button';
-import { ProvenanceBadge } from '../../../components/provenance-badge';
+import { AUTOMATED_VERIFIED_EXPLANATION, ProvenanceBadge } from '../../../components/provenance-badge';
 import { CopyHash } from './copy-hash';
 import { WorkActionButtons } from './save-button';
 import { RequestVerificationButton } from './request-verification-button';
+
+type VerificationDetectorSummary = {
+  provider: string;
+  role: string;
+  status: string;
+  ai_score: number | null;
+  authentic_score: number | null;
+  confidence: number | null;
+  recapture_score: number | null;
+  deepfake_score: number | null;
+  partial_ai_score: number | null;
+  error_code: string | null;
+};
+
+type VerificationSummary = {
+  state: 'queued' | 'running' | 'completed';
+  decision: 'verified' | 'rejected' | 'escalate' | null;
+  reason_code: string | null;
+  reason: string | null;
+  pipeline_version: string | null;
+  queued_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  evidence_digest: string | null;
+  screen_rephotograph: { suspected: boolean; coverage: 'partial_v1' };
+  detectors: VerificationDetectorSummary[];
+};
 
 function formatProofTimestamp(value: string | null | undefined) {
   if (!value) return '—';
@@ -42,6 +69,10 @@ function formatPublishedDate(value: string | null | undefined) {
   }).format(date);
 }
 
+function formatScore(value: number | null | undefined) {
+  return value === null || value === undefined ? '—' : value.toFixed(3);
+}
+
 function SignalBar({ signal }: { signal: TechnicalSignalRecord }) {
   return (
     <article className="technical-signal">
@@ -56,8 +87,8 @@ function SignalBar({ signal }: { signal: TechnicalSignalRecord }) {
           ))}
         </span>
       </div>
-      <p>{signal.description ?? 'This signal was included as supporting context for human review.'}</p>
-      <p className="signal-qualifier">{signal.qualifier ?? 'This signal is contextual and is not proof on its own.'}</p>
+      <p>{signal.description ?? 'This signal was included as supporting process context.'}</p>
+      <p className="signal-qualifier">{signal.qualifier ?? 'This signal is contextual and is not proof or an AI-content verdict on its own.'}</p>
     </article>
   );
 }
@@ -66,7 +97,7 @@ function provenanceSignalSummary(name: string, value: Record<string, unknown>): 
   const note = typeof value.note === 'string' ? value.note : null;
   if (note) return note;
   if (name === 'duplicate_hash') return value.duplicate ? 'The original hash matches an existing Work.' : 'No exact original-hash duplicate was found.';
-  return 'Recorded as provenance context for ranking and human review.';
+  return 'Recorded as provenance and integrity context for the automated review pipeline.';
 }
 
 function evidenceValue(value: string | number | null | undefined) {
@@ -78,8 +109,14 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const supabase = await getServerSupabase();
   const { data: authData } = await supabase.auth.getUser();
-  const work = await getWorkById(id);
+  const [work, verificationResult] = await Promise.all([
+    getWorkById(id),
+    supabase.rpc('get_work_verification_summary', { p_work_id: id }),
+  ]);
   if (!work) notFound();
+  const verification = verificationResult.error
+    ? null
+    : verificationResult.data as VerificationSummary | null;
   const saveContext: CollectionSaveContext = await getCollectionSaveContext([work.id]).catch((): CollectionSaveContext => ({
     isSignedIn: Boolean(authData.user),
     collections: [],
@@ -166,17 +203,25 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
             <p className="work-description">
               {work.description ?? 'A creator-submitted Work with a public origin record.'}
             </p>
-            {isOwner && isBareUnverified ? (
+            {isOwner && isBareUnverified && work.status !== 'rejected' ? (
               <aside className="unverified-guidance" aria-label="Unverified Work guidance">
                 <span className="panel-label">Not yet in default Discover</span>
                 <p>
                   {work.proof_count >= 1
-                    ? 'This Work is still unverified until its attached process evidence is submitted for human review.'
-                    : 'This Work is unverified and self-declared. Add real process evidence, then request review to move it into AWAITING REVIEW.'}
+                    ? 'This Work is still unverified until its process evidence and untouched original are submitted to Humn’s automated detector pipeline.'
+                    : 'This Work is unverified and self-declared. Add real process evidence, then request automated review.'}
                 </p>
                 <Link className="text-link" href={`/work/${work.id}/proofs`}>
                   {work.proof_count >= 1 ? 'Review proof story' : 'Add proof story'}
                 </Link>
+              </aside>
+            ) : null}
+            {isOwner && work.status === 'rejected' ? (
+              <aside className="unverified-guidance danger-zone" aria-label="Rejected Work resubmission">
+                <span className="panel-label">Automated review rejected this submission</span>
+                <p>{work.review_note ?? verification?.reason ?? 'A strong automated synthetic-content signal was recorded.'}</p>
+                <p className="method-hedge">Detector scores are not infallible. Submit a different untouched original with genuine process evidence rather than re-encoding this file.</p>
+                <Link className="button secondary" href="/share">RESUBMIT A WORK</Link>
               </aside>
             ) : null}
             <WorkActionButtons
@@ -190,11 +235,11 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
             />
             {isOwner ? (
               <div className="creator-proof-actions">
-                <Link className="button secondary" href={`/work/${work.id}/proofs`}>ADD PROOF STORY</Link>
+                {work.status !== 'rejected' ? <Link className="button secondary" href={`/work/${work.id}/proofs`}>ADD PROOF STORY</Link> : null}
                 {work.proof_count >= 1 && work.status === 'declared' && !work.ai_declared
                   ? <RequestVerificationButton workId={work.id} />
                   : null}
-                {work.review_note ? <p className="notice">REVIEW NOTE: {work.review_note}</p> : null}
+                {work.review_note && work.status !== 'rejected' ? <p className="notice">REVIEW NOTE: {work.review_note}</p> : null}
               </div>
             ) : null}
           </section>
@@ -206,7 +251,32 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
               <span className="panel-label">Origin record</span>
               <ProvenanceBadge variant={work.badge_variant} label={work.badge_label} />
             </div>
+            {work.status === 'verified' ? <p className="method-hedge">{AUTOMATED_VERIFIED_EXPLANATION} This is a cross-validated automated result, not a claim of certainty or human authorship proof.</p> : null}
           </section>
+
+          {verification ? (
+            <section className="provenance-block">
+              <div className="provenance-heading">
+                <div>
+                  <div className="panel-label">Automated verification</div>
+                  <h2>{verification.decision ?? verification.state}</h2>
+                </div>
+                <span className="meta">{verification.pipeline_version ?? 'VERSION PENDING'}</span>
+              </div>
+              {verification.reason && isOwner ? <p>{verification.reason}</p> : null}
+              <dl className="file-evidence-list">
+                {verification.detectors.map(detector => (
+                  <div className="file-evidence-row" key={`${detector.role}-${detector.provider}`}>
+                    <dt>{detector.provider} · {detector.role}</dt>
+                    <dd>AI {formatScore(detector.ai_score)} · confidence {formatScore(detector.confidence)} · {detector.status}</dd>
+                  </div>
+                ))}
+                <div className="file-evidence-row"><dt>Screen rephotograph</dt><dd>{verification.screen_rephotograph.suspected ? 'Suspected · escalated' : 'Not flagged · partial v1 coverage'}</dd></div>
+                <div className="file-evidence-row"><dt>Evidence digest</dt><dd>{verification.evidence_digest ? <CopyHash value={verification.evidence_digest} /> : 'Pending'}</dd></div>
+              </dl>
+              <p className="method-hedge">Every detector score is a signal, not a verdict. Disagreement, low confidence, provider failure, duplicate originals and screen-rephotograph suspicion do not auto-pass.</p>
+            </section>
+          ) : null}
 
           <section className="provenance-block" id="proof-story">
             <div className="provenance-heading">
@@ -221,7 +291,7 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
                 {proofStory.map(item => (
                   <li key={item.id}>
                     <time className="meta">{formatProofTimestamp(item.timestamp)}</time>
-                    <div className={item.thumbnail_url ? "proof-entry-body has-thumbnail" : "proof-entry-body"}>
+                    <div className={item.thumbnail_url ? 'proof-entry-body has-thumbnail' : 'proof-entry-body'}>
                       {item.thumbnail_url ? (
                         <Image src={item.thumbnail_url} alt={`Process stage: ${item.label}`} width={80} height={80} unoptimized />
                       ) : null}
@@ -237,9 +307,7 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
               <div className="proof-empty">
                 <span className="panel-label">No process evidence attached</span>
                 <p>
-                  The creator attached no process evidence. This Work is
-                  UNVERIFIED · SELF-DECLARED: the human-made claim comes from the
-                  uploader and has not been verified by Humn.
+                  The creator attached no process evidence. This Work is UNVERIFIED · SELF-DECLARED: the human-made claim comes from the uploader and has not been cleared by Humn.
                 </p>
               </div>
             )}
@@ -280,19 +348,19 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
                 </article>
               ))}
             </div>
-            <p className="method-hedge">Missing Content Credentials or EXIF is neutral. Recorded signals inform ranking and human review; they are not a detector and are not proof on their own.</p>
+            <p className="method-hedge">Missing Content Credentials or EXIF is neutral. These signals describe provenance and integrity; they do not detect AI visual content by themselves.</p>
           </section>
 
           <section className="provenance-block">
             <div className="provenance-heading">
-              <div className="panel-label">Technical signals</div>
+              <div className="panel-label">Technical process signals</div>
               <span className="meta">{pluralize(signals.length, 'SIGNAL', 'SIGNALS')}</span>
             </div>
             <div className="technical-signal-list">
               {signals.map(signal => <SignalBar key={signal.label} signal={signal} />)}
             </div>
             <p className="method-hedge">
-              Signals inform human review. They are not a detector and are never treated as proof on their own.
+              Process signals supplement detector results. They are not AI-content classifiers and are never proof on their own.
             </p>
           </section>
 
