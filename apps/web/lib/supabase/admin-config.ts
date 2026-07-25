@@ -26,10 +26,11 @@ export class SupabaseAdminConfigurationError extends Error {
 
 function decodeJwtRole(token: string): string | null {
   const segments = token.split('.');
-  if (segments.length !== 3) return null;
+  const payloadSegment = segments[1];
+  if (segments.length !== 3 || !payloadSegment) return null;
 
   try {
-    const payload = JSON.parse(Buffer.from(segments[1], 'base64url').toString('utf8')) as {
+    const payload = JSON.parse(Buffer.from(payloadSegment, 'base64url').toString('utf8')) as {
       role?: unknown;
     };
     return typeof payload.role === 'string' ? payload.role : null;
