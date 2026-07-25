@@ -8,6 +8,7 @@ import { authMetadataNeedsHandleChoice, type NavAuthState } from '../lib/auth/na
 import { getServerSupabase } from '../lib/supabase/server';
 import { getSiteOrigin } from '../lib/deployment/site-url';
 import './globals.css';
+import './discover-responsive.css';
 
 const display = Fraunces({ subsets: ['latin'], weight: ['600'], variable: '--font-display', display: 'swap' });
 const body = Inter_Tight({ subsets: ['latin'], weight: ['400', '500'], variable: '--font-body', display: 'swap' });
