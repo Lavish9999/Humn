@@ -66,7 +66,7 @@ Core decision code depends only on `DetectorProvider` and normalized `DetectorRe
 Required initial adapters:
 
 - `sightengine` — primary AI-image score, recapture, deepfake and content-safety flags
-- `hive` — independent secondary AI-generated-media score and deepfake cross-check
+- `hive` — independent secondary AI-generated-media score and deepfake cross-check through Hive V3 Playground
 
 Optional adapter:
 
@@ -129,8 +129,10 @@ Provision only as Vercel server environment variables:
 
 - `SIGHTENGINE_API_USER`
 - `SIGHTENGINE_API_SECRET`
-- `HIVE_API_KEY`
+- `HIVE_V3_SECRET_KEY`
 - `AUTOMATED_REVIEW_SECRET`
+
+Hive V3 uses the Playground Secret Key as a bearer credential. The Access Key ID is not sent to the detection endpoint. `HIVE_API_KEY` remains a temporary legacy environment-variable alias only.
 
 Optional:
 
