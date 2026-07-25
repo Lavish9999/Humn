@@ -25,29 +25,28 @@ select has_column('public', 'moderation_actions', 'strike_action', 'moderation a
 select has_column('public', 'moderation_actions', 'target_user_id', 'moderation audit stores affected user');
 select ok(exists(select 1 from pg_indexes where schemaname='public' and tablename='strikes' and indexname='strikes_ai_attempt_collapse_idx'), 'rapid identical attempt lookup index exists');
 
-select unlike(
-  pg_get_functiondef('public.sync_work_report_count()'::regprocedure),
-  '%strikes%',
+select ok(
+  position('strikes' in pg_get_functiondef('public.sync_work_report_count()'::regprocedure)) = 0,
   'report threshold never auto-issues a strike'
 );
-select like(
-  pg_get_functiondef('public.create_origin_work_with_provenance(uuid,uuid,text,text,text,text,text,text,public.humn_origin_input,text,text,integer,text,text,text,text,timestamp with time zone,timestamp with time zone,jsonb,boolean)'::regprocedure),
-  '%assert_user_can_post%',
+select ok(
+  position('assert_user_can_post' in pg_get_functiondef(
+    'public.create_origin_work_with_provenance(uuid,uuid,text,text,text,text,text,text,public.humn_origin_input,text,text,integer,text,text,text,text,timestamp with time zone,timestamp with time zone,jsonb,boolean)'::regprocedure
+  )) > 0,
   'database creation path enforces strike restrictions'
 );
-select like(
-  pg_get_functiondef('public.create_origin_work_with_provenance(uuid,uuid,text,text,text,text,text,text,public.humn_origin_input,text,text,integer,text,text,text,text,timestamp with time zone,timestamp with time zone,jsonb,boolean)'::regprocedure),
-  '%cannot be published as a Humn Work%',
+select ok(
+  position('cannot be published as a Humn Work' in pg_get_functiondef(
+    'public.create_origin_work_with_provenance(uuid,uuid,text,text,text,text,text,text,public.humn_origin_input,text,text,integer,text,text,text,text,timestamp with time zone,timestamp with time zone,jsonb,boolean)'::regprocedure
+  )) > 0,
   'database creation path rejects C2PA AI-declared assets'
 );
-select like(
-  pg_get_functiondef('public.record_ai_upload_strike(uuid,text,text,jsonb)'::regprocedure),
-  '%15 minutes%',
+select ok(
+  position('15 minutes' in pg_get_functiondef('public.record_ai_upload_strike(uuid,text,text,jsonb)'::regprocedure)) > 0,
   'identical C2PA AI attempts collapse in a short window'
 );
-select like(
-  pg_get_functiondef('public.record_ai_upload_strike(uuid,text,text,jsonb)'::regprocedure),
-  '%6 months%',
+select ok(
+  position('6 months' in pg_get_functiondef('public.record_ai_upload_strike(uuid,text,text,jsonb)'::regprocedure)) > 0,
   'new strikes reset the clean-behavior decay window'
 );
 select is((select count(*)::integer from public.strikes where source='c2pa_ai' and evidence_hash is null), 0, 'automatic AI strikes always retain the evidence hash');
