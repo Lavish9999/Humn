@@ -85,11 +85,27 @@ function captureDevice(make: string | null, model: string | null): string | null
   return `${make} ${model}`;
 }
 
+const TRANSLATED_ORIENTATIONS = new Map<string, number>([
+  ['horizontal (normal)', 1],
+  ['mirror horizontal', 2],
+  ['rotate 180', 3],
+  ['mirror vertical', 4],
+  ['mirror horizontal and rotate 270 cw', 5],
+  ['rotate 90 cw', 6],
+  ['mirror horizontal and rotate 90 cw', 7],
+  ['rotate 270 cw', 8],
+]);
+
 function orientationValue(value: unknown): number | null {
   const numeric = numericValue(value);
-  if (numeric === null) return null;
-  const rounded = Math.round(numeric);
-  return rounded >= 1 && rounded <= 8 ? rounded : null;
+  if (numeric !== null) {
+    const rounded = Math.round(numeric);
+    return rounded >= 1 && rounded <= 8 ? rounded : null;
+  }
+
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ');
+  return TRANSLATED_ORIENTATIONS.get(normalized) ?? null;
 }
 
 function hasCoordinate(raw: Record<string, unknown>): boolean {
