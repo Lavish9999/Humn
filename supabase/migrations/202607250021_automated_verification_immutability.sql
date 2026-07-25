@@ -41,26 +41,26 @@ security definer
 set search_path = ''
 as $$
 begin
-  raise exception 'Verification audit events are append-only' using errcode = '42501';
+  raise exception 'Verification audit events are append-only and cannot be removed' using errcode = '42501';
 end;
 $$;
 
 drop trigger if exists humn_completed_verification_run_immutable
   on public.verification_pipeline_runs;
 create trigger humn_completed_verification_run_immutable
-before update on public.verification_pipeline_runs
+before update or delete on public.verification_pipeline_runs
 for each row execute function public.protect_completed_verification_run();
 
 drop trigger if exists humn_completed_detector_result_immutable
   on public.verification_detector_results;
 create trigger humn_completed_detector_result_immutable
-before update on public.verification_detector_results
+before update or delete on public.verification_detector_results
 for each row execute function public.protect_completed_detector_result();
 
 drop trigger if exists humn_verification_audit_append_only
   on public.verification_audit_events;
 create trigger humn_verification_audit_append_only
-before update on public.verification_audit_events
+before update or delete on public.verification_audit_events
 for each row execute function public.protect_verification_audit_event();
 
 revoke all on function public.protect_completed_verification_run() from public, anon, authenticated;
@@ -68,10 +68,10 @@ revoke all on function public.protect_completed_detector_result() from public, a
 revoke all on function public.protect_verification_audit_event() from public, anon, authenticated;
 
 comment on function public.protect_completed_verification_run() is
-  'Prevents later application code from rewriting a completed automated decision. New evidence requires a new run.';
+  'Prevents later application code from rewriting or deleting a completed automated decision. New evidence requires a new run.';
 comment on function public.protect_completed_detector_result() is
-  'Prevents normalized scores or raw provider evidence from being rewritten after run completion.';
+  'Prevents normalized scores or raw provider evidence from being rewritten or deleted after run completion.';
 comment on function public.protect_verification_audit_event() is
-  'Makes verification audit records append-only.';
+  'Makes verification audit records append-only and non-deletable.';
 
 commit;
