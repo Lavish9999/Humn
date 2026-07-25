@@ -42,3 +42,58 @@ jobs:
       - run: supabase test db
       - if: always()
         run: supabase stop --no-backup
+
+  direct-upload-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: supabase/setup-cli@v1
+        with: { version: latest }
+      - name: Install dependencies
+        run: npm install
+      - name: Start and migrate local Supabase
+        run: |
+          supabase start
+          supabase db reset
+          supabase status -o env > supabase.env
+          set -a
+          source supabase.env
+          set +a
+          echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3000" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_APP_ENV=development" >> "$GITHUB_ENV"
+          echo "TEST_BASE_URL=http://127.0.0.1:3000" >> "$GITHUB_ENV"
+      - name: Start Humn web app
+        run: |
+          npm run dev -w @human/web -- --hostname 127.0.0.1 > humn-web.log 2>&1 &
+          echo $! > humn-web.pid
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent http://127.0.0.1:3000/share > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat humn-web.log
+          exit 1
+      - name: Test direct uploads and authorization
+        run: node scripts/test-direct-work-upload.mjs 2>&1 | tee direct-upload-test.log
+      - name: Upload direct-upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: direct-upload-diagnostics
+          path: |
+            direct-upload-test.log
+            humn-web.log
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Stop local services
+        if: always()
+        run: |
+          if [ -f humn-web.pid ]; then kill "$(cat humn-web.pid)" || true; fi
+          supabase stop --no-backup

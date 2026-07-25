@@ -10,10 +10,22 @@ const productionConfig = {
  * database access remains protected by Row Level Security. Private secret and
  * service-role keys must never be added here.
  *
- * These values are authoritative until the Vercel project environment is
- * corrected. This prevents stale or unrelated deployment variables from
- * silently routing Humn to the wrong Supabase project.
+ * Vercel builds remain pinned to the verified Humn project so stale deployment
+ * variables cannot route production elsewhere. Local development and CI may
+ * explicitly point at the local Supabase stack.
  */
 export function getPublicSupabaseConfig() {
+  const localUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const localKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  const isLocalDevelopment = process.env.NODE_ENV !== 'production'
+    && Boolean(localUrl && localKey);
+
+  if (isLocalDevelopment) {
+    return {
+      url: localUrl as string,
+      publishableKey: localKey as string,
+    };
+  }
+
   return productionConfig;
 }
