@@ -16,6 +16,10 @@ import { processUploadedImage } from '../../../../lib/uploads/process-image';
 import { analyzeUploadedProvenance } from '../../../../lib/provenance/analyze';
 import { getPostingRestriction, firstRow } from '../../../../lib/uploads/posting-access';
 import {
+  adminConfigurationFailureResponse,
+  storageAdministrationFailureResponse,
+} from '../../../../lib/uploads/admin-failures';
+import {
   isOwnedOriginalStoragePath,
   isUuid,
   validateUploadDescriptor,
@@ -43,6 +47,13 @@ type AiStrikeResult = {
   posting_cooldown_until: string | null;
   suspended_at: string | null;
   can_post: boolean;
+};
+
+type SupabaseOperationError = {
+  code?: string;
+  message: string;
+  details?: string;
+  hint?: string;
 };
 
 function aiCredentialMessage(result: AiStrikeResult): string {
@@ -114,16 +125,67 @@ async function removeUploadedFiles(
       logFinalizeError('Storage cleanup rejected.', {
         originalPath,
         displayPaths,
+        errorClass: result.reason instanceof Error ? result.reason.name : 'UnknownError',
         error: result.reason instanceof Error ? result.reason.message : String(result.reason),
       });
     } else if (result.value.error) {
       logFinalizeError('Storage cleanup returned an error.', {
         originalPath,
         displayPaths,
+        errorClass: result.value.error.name ?? 'StorageError',
         error: result.value.error.message,
       });
     }
   }
+}
+
+function workRecordFailureResponse(
+  error: SupabaseOperationError,
+  details: Record<string, unknown>,
+): NextResponse {
+  const normalized = error.message.toLowerCase();
+  const profileRelationMissing = error.code === '23503'
+    || normalized.includes('foreign key')
+    || normalized.includes('creator_id');
+  const policyDenied = error.code === '42501'
+    || normalized.includes('row-level security')
+    || normalized.includes('permission denied');
+  const rpcMissing = error.code === '42883'
+    || error.code === 'PGRST202'
+    || normalized.includes('function') && normalized.includes('does not exist');
+
+  const errorCode = profileRelationMissing
+    ? 'CREATOR_PROFILE_RELATION_MISSING'
+    : policyDenied
+      ? 'WORK_RECORD_POLICY_DENIED'
+      : rpcMissing
+        ? 'WORK_RECORD_RPC_MISSING'
+        : 'WORK_RECORD_FAILED';
+  const status = profileRelationMissing ? 409 : policyDenied ? 403 : rpcMissing ? 503 : 500;
+  const formError = profileRelationMissing
+    ? 'Your creator profile is not ready for publishing yet. Complete or refresh your profile, then try again.'
+    : policyDenied
+      ? 'Supabase denied creation of this Work under the current database policy.'
+      : rpcMissing
+        ? 'The database function required to publish this Work is unavailable.'
+        : 'The images were processed, but the Work record could not be created.';
+
+  logFinalizeError('Work record and provenance RPC failed.', {
+    ...details,
+    errorClass: 'WorkRecordRpcError',
+    errorCode,
+    supabaseCode: error.code ?? null,
+    error: error.message,
+    details: error.details ?? null,
+    hint: error.hint ?? null,
+  });
+
+  return NextResponse.json({
+    ok: false,
+    errorClass: 'WorkRecordRpcError',
+    errorCode,
+    formError,
+  }, { status });
 }
 
 export async function POST(request: Request) {
@@ -132,6 +194,7 @@ export async function POST(request: Request) {
   if (authError || !authData.user) {
     return NextResponse.json({
       ok: false,
+      errorClass: 'UploadAuthenticationError',
       errorCode: 'AUTH_REQUIRED',
       formError: 'Your session expired. Sign in again before publishing.',
       redirectTo: '/signin?next=%2Fshare',
@@ -144,10 +207,12 @@ export async function POST(request: Request) {
   } catch (error) {
     logFinalizeError('Request JSON could not be read.', {
       userId: authData.user.id,
+      errorClass: error instanceof Error ? error.name : 'UnknownError',
       error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json({
       ok: false,
+      errorClass: 'UploadRequestParseError',
       errorCode: 'INVALID_REQUEST',
       formError: 'The publish request could not be read.',
     }, { status: 400 });
@@ -156,11 +221,13 @@ export async function POST(request: Request) {
   const fieldErrors = validateMetadata(payload);
   if (Object.keys(fieldErrors).length) {
     const fileSize = numberValue(payload.fileSize);
+    const fileTooLarge = fileSize > MAX_UPLOAD_BYTES;
     return NextResponse.json({
       ok: false,
-      errorCode: fileSize > MAX_UPLOAD_BYTES ? 'FILE_TOO_LARGE' : 'INVALID_METADATA',
+      errorClass: fileTooLarge ? 'UploadSizeLimitError' : 'UploadValidationError',
+      errorCode: fileTooLarge ? 'FILE_TOO_LARGE' : 'INVALID_METADATA',
       fieldErrors,
-    }, { status: fileSize > MAX_UPLOAD_BYTES ? 413 : 400 });
+    }, { status: fileTooLarge ? 413 : 400 });
   }
 
   const workId = stringValue(payload.workId);
@@ -174,6 +241,7 @@ export async function POST(request: Request) {
   if (!isUuid(workId)) {
     return NextResponse.json({
       ok: false,
+      errorClass: 'UploadIdentifierError',
       errorCode: 'INVALID_UPLOAD_ID',
       formError: 'The upload identifier is invalid. Select the image again.',
     }, { status: 400 });
@@ -181,6 +249,7 @@ export async function POST(request: Request) {
   if (!isAcceptedImageType(mimeType)) {
     return NextResponse.json({
       ok: false,
+      errorClass: 'UploadValidationError',
       errorCode: 'INVALID_FILE_TYPE',
       fieldErrors: { file: 'Choose a JPEG, PNG, or WebP image.' },
     }, { status: 400 });
@@ -195,9 +264,11 @@ export async function POST(request: Request) {
       userId: authData.user.id,
       workId,
       storagePath,
+      errorClass: 'StoragePathAuthorizationError',
     });
     return NextResponse.json({
       ok: false,
+      errorClass: 'StoragePathAuthorizationError',
       errorCode: 'STORAGE_PATH_DENIED',
       formError: 'Upload permission was denied for that storage path.',
     }, { status: 403 });
@@ -212,10 +283,12 @@ export async function POST(request: Request) {
     logFinalizeError('Profile lookup failed.', {
       userId: authData.user.id,
       workId,
+      errorClass: 'CreatorProfileLookupError',
       error: profileError.message,
     });
     return NextResponse.json({
       ok: false,
+      errorClass: 'CreatorProfileLookupError',
       errorCode: 'PROFILE_LOOKUP_FAILED',
       formError: 'Your creator profile could not be checked. Try again.',
     }, { status: 500 });
@@ -223,21 +296,37 @@ export async function POST(request: Request) {
   if (!profile) {
     return NextResponse.json({
       ok: false,
+      errorClass: 'CreatorProfileRequiredError',
       errorCode: 'PROFILE_REQUIRED',
+      formError: 'Complete your creator profile before publishing.',
       redirectTo: '/complete-profile',
     }, { status: 409 });
   }
 
-  const admin = getAdminSupabase();
+  let admin: ReturnType<typeof getAdminSupabase>;
+  try {
+    admin = getAdminSupabase();
+  } catch (error) {
+    const configurationFailure = adminConfigurationFailureResponse(error, 'finalize', {
+      userId: authData.user.id,
+      workId,
+      storagePath,
+    });
+    if (configurationFailure) return configurationFailure;
+    throw error;
+  }
+
   const posting = await getPostingRestriction(admin, authData.user.id);
   if (posting.error) {
     logFinalizeError('Posting status RPC failed.', {
       userId: authData.user.id,
       workId,
+      errorClass: 'PostingStatusRpcError',
       error: posting.error,
     });
     return NextResponse.json({
       ok: false,
+      errorClass: 'PostingStatusRpcError',
       errorCode: 'POSTING_STATUS_FAILED',
       formError: 'Posting status could not be checked. Try again.',
     }, { status: 500 });
@@ -246,6 +335,7 @@ export async function POST(request: Request) {
     await removeUploadedFiles(admin, storagePath, []);
     return NextResponse.json({
       ok: false,
+      errorClass: 'PostingRestrictionError',
       errorCode: 'POSTING_RESTRICTED',
       formError: posting.restriction,
     }, { status: 403 });
@@ -255,17 +345,30 @@ export async function POST(request: Request) {
     .from(ORIGINAL_BUCKET)
     .download(storagePath);
   if (downloadError || !storedObject) {
-    logFinalizeError('Stored original could not be downloaded.', {
-      userId: authData.user.id,
-      workId,
-      storagePath,
-      error: downloadError?.message ?? 'Missing stored object.',
+    const message = downloadError?.message ?? 'Stored object was not returned.';
+    const normalized = message.toLowerCase();
+    if (normalized.includes('object not found') || normalized.includes('not found')) {
+      logFinalizeError('Stored original was not found.', {
+        userId: authData.user.id,
+        workId,
+        storagePath,
+        errorClass: downloadError?.name ?? 'StoredUploadMissingError',
+        error: message,
+      });
+      return NextResponse.json({
+        ok: false,
+        errorClass: 'StoredUploadMissingError',
+        errorCode: 'STORED_UPLOAD_MISSING',
+        formError: 'The direct upload did not reach Storage. Select the image and try again.',
+      }, { status: 409 });
+    }
+
+    return storageAdministrationFailureResponse({
+      context: 'finalize',
+      step: 'download',
+      message,
+      details: { userId: authData.user.id, workId, storagePath },
     });
-    return NextResponse.json({
-      ok: false,
-      errorCode: 'STORED_UPLOAD_MISSING',
-      formError: 'The direct upload did not reach storage. Select the image and try again.',
-    }, { status: 409 });
   }
 
   const actualSize = storedObject.size;
@@ -273,6 +376,7 @@ export async function POST(request: Request) {
     await removeUploadedFiles(admin, storagePath, []);
     return NextResponse.json({
       ok: false,
+      errorClass: 'UploadSizeLimitError',
       errorCode: 'FILE_TOO_LARGE',
       fieldErrors: { file: 'Image exceeds the 15 MB limit.' },
     }, { status: 413 });
@@ -285,9 +389,11 @@ export async function POST(request: Request) {
       storagePath,
       claimedSize,
       actualSize,
+      errorClass: 'UploadIntegrityError',
     });
     return NextResponse.json({
       ok: false,
+      errorClass: 'UploadIntegrityError',
       errorCode: 'FILE_SIZE_MISMATCH',
       fieldErrors: { file: 'The uploaded file was incomplete. Select the image and try again.' },
     }, { status: 400 });
@@ -309,10 +415,12 @@ export async function POST(request: Request) {
       userId: authData.user.id,
       workId,
       storagePath,
+      errorClass: error instanceof Error ? error.name : 'ImageProcessingError',
       error: message,
     });
     return NextResponse.json({
       ok: false,
+      errorClass: 'ImageProcessingError',
       errorCode: 'IMAGE_PROCESSING_FAILED',
       fieldErrors: { file: message },
     }, { status: 400 });
@@ -328,12 +436,14 @@ export async function POST(request: Request) {
       userId: authData.user.id,
       workId,
       storagePath,
+      errorClass: error instanceof Error ? error.name : 'OriginAnalysisError',
       error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json({
       ok: false,
+      errorClass: 'OriginAnalysisError',
       errorCode: 'ORIGIN_ANALYSIS_FAILED',
-      formError: 'The image reached storage, but its origin record could not be analyzed. Try again.',
+      formError: 'The image reached Storage, but its origin record could not be analyzed.',
     }, { status: 500 });
   }
 
@@ -357,19 +467,23 @@ export async function POST(request: Request) {
         userId: authData.user.id,
         workId,
         originalHash: processed.sha256,
+        errorClass: 'AiStrikeRpcError',
+        supabaseCode: strikeError.code ?? null,
         error: strikeError.message,
       });
       return NextResponse.json({
         ok: false,
+        errorClass: 'AiStrikeRpcError',
         errorCode: 'AI_STRIKE_SAVE_FAILED',
         fieldErrors: { file: 'The file’s Content Credentials declare AI-generated origin, so it cannot be published.' },
-        formError: 'The upload was blocked, but the accountability record could not be saved. Support has been given the underlying error.',
+        formError: 'The upload was blocked, but the accountability record could not be saved.',
       }, { status: 500 });
     }
 
     const strike = firstRow(strikeData as AiStrikeResult | AiStrikeResult[] | null);
     return NextResponse.json({
       ok: false,
+      errorClass: 'AiDeclaredOriginError',
       errorCode: 'AI_DECLARED',
       fieldErrors: { file: 'This file’s embedded Content Credentials declare AI-generated origin.' },
       formError: strike
@@ -392,17 +506,12 @@ export async function POST(request: Request) {
     });
   if (displayUpload.error) {
     await removeUploadedFiles(admin, storagePath, []);
-    logFinalizeError('Display image upload failed.', {
-      userId: authData.user.id,
-      workId,
-      displayPath,
-      error: displayUpload.error.message,
+    return storageAdministrationFailureResponse({
+      context: 'finalize',
+      step: 'display-upload',
+      message: displayUpload.error.message,
+      details: { userId: authData.user.id, workId, displayPath },
     });
-    return NextResponse.json({
-      ok: false,
-      errorCode: 'DISPLAY_UPLOAD_FAILED',
-      formError: 'The original reached storage, but the display image could not be created. Try again.',
-    }, { status: 500 });
   }
 
   const thumbnailUpload = await admin.storage
@@ -414,17 +523,12 @@ export async function POST(request: Request) {
     });
   if (thumbnailUpload.error) {
     await removeUploadedFiles(admin, storagePath, [displayPath]);
-    logFinalizeError('Thumbnail upload failed.', {
-      userId: authData.user.id,
-      workId,
-      thumbnailPath,
-      error: thumbnailUpload.error.message,
+    return storageAdministrationFailureResponse({
+      context: 'finalize',
+      step: 'thumbnail-upload',
+      message: thumbnailUpload.error.message,
+      details: { userId: authData.user.id, workId, thumbnailPath },
     });
-    return NextResponse.json({
-      ok: false,
-      errorCode: 'THUMBNAIL_UPLOAD_FAILED',
-      formError: 'The original reached storage, but its thumbnail could not be created. Try again.',
-    }, { status: 500 });
   }
 
   const imageUrl = admin.storage.from(DISPLAY_BUCKET).getPublicUrl(displayPath).data.publicUrl;
@@ -456,17 +560,11 @@ export async function POST(request: Request) {
 
   if (insertError) {
     await removeUploadedFiles(admin, storagePath, [displayPath, thumbnailPath]);
-    logFinalizeError('Work record and provenance RPC failed.', {
+    return workRecordFailureResponse(insertError, {
       userId: authData.user.id,
       workId,
       originalHash: processed.sha256,
-      error: insertError.message,
     });
-    return NextResponse.json({
-      ok: false,
-      errorCode: 'WORK_RECORD_FAILED',
-      formError: 'The images were processed, but the Work record could not be created. Try again.',
-    }, { status: 500 });
   }
 
   return NextResponse.json({
