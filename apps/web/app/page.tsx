@@ -11,23 +11,14 @@ const values = [
 ] as const;
 const utilityIndex = [['14','Strongly Verified','/discover?tier=verified'],['15','Following','/discover?view=following'],['16','Discover','/discover']] as const;
 
-function hasPublicSupabaseConfig() {
-  return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL
-      && (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
-  );
-}
-
 export default async function HomePage() {
   let works: Awaited<ReturnType<typeof getWorkFeed>>['items'] = [];
 
-  if (hasPublicSupabaseConfig()) {
-    try {
-      const feed = await getWorkFeed({ limit: 8 });
-      works = feed.items;
-    } catch (error) {
-      console.error('Homepage feed lookup failed.', error);
-    }
+  try {
+    const feed = await getWorkFeed({ limit: 8 });
+    works = feed.items;
+  } catch (error) {
+    console.error('Homepage feed lookup failed.', error);
   }
 
   return <main className="home-page">
