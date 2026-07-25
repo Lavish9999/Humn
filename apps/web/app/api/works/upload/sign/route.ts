@@ -7,6 +7,7 @@ import {
   ORIGINAL_BUCKET,
   type AcceptedImageType,
 } from '../../../../../lib/uploads/constants';
+import { ensureWorkUploadBuckets } from '../../../../../lib/uploads/ensure-work-buckets';
 import { getPostingRestriction } from '../../../../../lib/uploads/posting-access';
 import {
   buildOriginalStoragePath,
@@ -90,6 +91,21 @@ export async function POST(request: Request) {
   }
 
   const admin = getAdminSupabase();
+  try {
+    await ensureWorkUploadBuckets(admin);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logSignError('Work bucket configuration could not be enforced.', {
+      userId: authData.user.id,
+      error: message,
+    });
+    return NextResponse.json({
+      ok: false,
+      errorCode: 'STORAGE_CONFIGURATION_FAILED',
+      formError: 'Storage could not be prepared for a 15 MB image. Try again shortly.',
+    }, { status: 500 });
+  }
+
   const posting = await getPostingRestriction(admin, authData.user.id);
   if (posting.error) {
     logSignError('Posting status RPC failed.', {
