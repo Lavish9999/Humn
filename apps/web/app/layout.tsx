@@ -1,4 +1,4 @@
-﻿import type { Metadata } from 'next';
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Fraunces, Inter_Tight, JetBrains_Mono } from 'next/font/google';
 import { productConfig } from '@human/config';
@@ -19,32 +19,46 @@ export const metadata: Metadata = {
   description: productConfig.description,
 };
 
+function hasPublicSupabaseConfig() {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL
+      && (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+  );
+}
+
 async function getInitialNavAuthState(): Promise<NavAuthState> {
-  const supabase = await getServerSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
+  if (!hasPublicSupabaseConfig()) return { status: 'signed-out' };
 
-  if (!user) return { status: 'signed-out' };
+  try {
+    const supabase = await getServerSupabase();
+    const { data: { user } } = await supabase.auth.getUser();
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('handle, avatar_url, is_admin, reviewer_level')
-    .eq('id', user.id)
-    .maybeSingle();
+    if (!user) return { status: 'signed-out' };
 
-  if (!profile) return { status: 'profile-missing', userId: user.id };
+    const { data: profile } = await supabase
+      .from('users')
+      .select('handle, avatar_url, is_admin, reviewer_level')
+      .eq('id', user.id)
+      .maybeSingle();
 
-  const identity = {
-    userId: user.id,
-    handle: String(profile.handle),
-    avatarUrl: typeof profile.avatar_url === 'string' ? profile.avatar_url : null,
-    canReview: Boolean(profile.is_admin || (profile.reviewer_level ?? 0) > 0),
-  };
+    if (!profile) return { status: 'profile-missing', userId: user.id };
 
-  if (authMetadataNeedsHandleChoice(user.user_metadata)) {
-    return { status: 'handle-choice-required', ...identity };
+    const identity = {
+      userId: user.id,
+      handle: String(profile.handle),
+      avatarUrl: typeof profile.avatar_url === 'string' ? profile.avatar_url : null,
+      canReview: Boolean(profile.is_admin || (profile.reviewer_level ?? 0) > 0),
+    };
+
+    if (authMetadataNeedsHandleChoice(user.user_metadata)) {
+      return { status: 'handle-choice-required', ...identity };
+    }
+
+    return { status: 'signed-in', ...identity };
+  } catch (error) {
+    console.error('Initial navigation auth lookup failed.', error);
+    return { status: 'signed-out' };
   }
-
-  return { status: 'signed-in', ...identity };
 }
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -67,4 +81,3 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     </html>
   );
 }
-
