@@ -4,7 +4,12 @@ select plan(12);
 select has_table('public', 'follows', 'follows table exists');
 select has_index('public', 'follows', 'follows_creator_created_idx', 'creator-side follow index exists');
 select has_index('public', 'follows', 'follows_follower_created_idx', 'follower-side follow index exists');
-select has_function('public', 'get_following_work_feed', array['integer','integer'], 'following feed RPC exists');
+select has_function(
+  'public',
+  'get_following_work_feed',
+  array['text[]','text','public.humn_origin_input[]','integer','timestamp with time zone','uuid','integer'],
+  'cursor-based following feed RPC exists'
+);
 select has_function('public', 'get_creator_network', array['text','text','integer','integer'], 'creator network RPC exists');
 
 select policies_are(
@@ -33,7 +38,7 @@ select table_privs_are(
 select function_privs_are(
   'public',
   'get_following_work_feed',
-  array['integer','integer'],
+  array['text[]','text','public.humn_origin_input[]','integer','timestamp with time zone','uuid','integer'],
   'authenticated',
   array['EXECUTE'],
   'authenticated users can load their Following feed'
