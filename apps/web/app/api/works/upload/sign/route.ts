@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { getServerSupabase } from '../../../../../lib/supabase/server';
 import { getAdminSupabase } from '../../../../../lib/supabase/admin';
 import {
+  MAX_UPLOAD_BYTES,
   ORIGINAL_BUCKET,
   type AcceptedImageType,
 } from '../../../../../lib/uploads/constants';
@@ -80,11 +81,12 @@ export async function POST(request: Request) {
   };
   const fieldErrors = validateUploadDescriptor(descriptor);
   if (Object.keys(fieldErrors).length) {
+    const fileTooLarge = descriptor.fileSize > MAX_UPLOAD_BYTES;
     return NextResponse.json({
       ok: false,
-      errorCode: descriptor.fileSize > 15 * 1024 * 1024 ? 'FILE_TOO_LARGE' : 'INVALID_FILE',
+      errorCode: fileTooLarge ? 'FILE_TOO_LARGE' : 'INVALID_FILE',
       fieldErrors,
-    }, { status: descriptor.fileSize > 15 * 1024 * 1024 ? 413 : 400 });
+    }, { status: fileTooLarge ? 413 : 400 });
   }
 
   const admin = getAdminSupabase();
