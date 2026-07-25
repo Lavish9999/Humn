@@ -12,10 +12,85 @@ function Write-Step([string]$Message) {
   Write-Host "`n==> $Message" -ForegroundColor Cyan
 }
 
-function Require-LastExitCode([string]$FailureMessage) {
-  if ($LASTEXITCODE -ne 0) {
-    throw $FailureMessage
+function Get-NpxExecutable {
+  if ($env:OS -eq 'Windows_NT') {
+    return 'npx.cmd'
   }
+
+  return 'npx'
+}
+
+function Invoke-NpxCommand {
+  param(
+    [Parameter(Mandatory)][string[]]$Arguments,
+    [string]$StandardInputPath,
+    [switch]$CaptureOutput,
+    [string]$FailureMessage = 'The command failed.'
+  )
+
+  $stdoutPath = [IO.Path]::GetTempFileName()
+  $stderrPath = [IO.Path]::GetTempFileName()
+
+  try {
+    $startParameters = @{
+      FilePath = Get-NpxExecutable
+      ArgumentList = $Arguments
+      Wait = $true
+      NoNewWindow = $true
+      PassThru = $true
+      RedirectStandardOutput = $stdoutPath
+      RedirectStandardError = $stderrPath
+    }
+
+    if ($StandardInputPath) {
+      $startParameters.RedirectStandardInput = $StandardInputPath
+    }
+
+    $process = Start-Process @startParameters
+    $stdout = if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw } else { '' }
+    $stderr = if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw } else { '' }
+
+    if ($process.ExitCode -ne 0) {
+      $detail = $stderr.Trim()
+      if (-not $detail) {
+        $detail = $stdout.Trim()
+      }
+
+      if ($detail) {
+        throw "$FailureMessage`n$detail"
+      }
+
+      throw $FailureMessage
+    }
+
+    if (-not $CaptureOutput -and $stdout.Trim()) {
+      Write-Host $stdout.Trim()
+    }
+
+    return $stdout
+  }
+  finally {
+    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Convert-CommandJsonToItems {
+  param([Parameter(Mandatory)][string]$Json)
+
+  $parsed = $Json | ConvertFrom-Json
+
+  if ($parsed -is [Array]) {
+    return @($parsed)
+  }
+
+  foreach ($propertyName in @('items', 'projects', 'keys', 'api_keys', 'data')) {
+    $property = $parsed.PSObject.Properties[$propertyName]
+    if ($null -ne $property -and $null -ne $property.Value) {
+      return @($property.Value)
+    }
+  }
+
+  return @($parsed)
 }
 
 function Get-ObjectValue {
@@ -81,15 +156,15 @@ function Set-VercelEnvironmentVariable {
     [switch]$Sensitive
   )
 
-  $tempPath = [IO.Path]::GetTempFileName()
+  $inputPath = [IO.Path]::GetTempFileName()
 
   try {
-    [IO.File]::WriteAllText($tempPath, $Value, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($inputPath, $Value, [Text.UTF8Encoding]::new($false))
 
     $arguments = @(
-      'vercel', 'env', 'add', $Name, $Environment,
+      '--yes', 'vercel@latest',
+      'env', 'add', $Name, $Environment,
       '--force', '--yes',
-      '--cwd', 'apps/web',
       '--scope', $VercelScope
     )
 
@@ -97,21 +172,13 @@ function Set-VercelEnvironmentVariable {
       $arguments += '--sensitive'
     }
 
-    $npxExecutable = if ($IsWindows -or $env:OS -eq 'Windows_NT') { 'npx.cmd' } else { 'npx' }
-    $process = Start-Process \
-      -FilePath $npxExecutable \
-      -ArgumentList $arguments \
-      -RedirectStandardInput $tempPath \
-      -Wait \
-      -NoNewWindow \
-      -PassThru
-
-    if ($process.ExitCode -ne 0) {
-      throw "Could not set $Name for the $Environment environment."
-    }
+    Invoke-NpxCommand \
+      -Arguments $arguments \
+      -StandardInputPath $inputPath \
+      -FailureMessage "Could not set $Name for the $Environment environment." | Out-Null
   }
   finally {
-    Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $inputPath -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -129,10 +196,11 @@ foreach ($requiredPath in $requiredPaths) {
 }
 
 Write-Step 'Checking authenticated Supabase access'
-$projectsOutput = & npx --yes supabase@latest projects list --output json 2>&1
-Require-LastExitCode 'Supabase CLI is not authenticated. Run: npx supabase login'
-
-$projects = @($projectsOutput | ConvertFrom-Json)
+$projectsJson = Invoke-NpxCommand \
+  -Arguments @('--yes', 'supabase@latest', 'projects', 'list', '--output', 'json') \
+  -CaptureOutput \
+  -FailureMessage 'Supabase CLI is not authenticated. Run: npx supabase login'
+$projects = Convert-CommandJsonToItems -Json $projectsJson
 $projectMatch = $projects | Where-Object {
   (Get-ObjectValue -Object $_ -Names @('id', 'ref', 'project_ref')) -eq $SupabaseProjectRef
 } | Select-Object -First 1
@@ -142,12 +210,13 @@ if (-not $projectMatch) {
 }
 
 Write-Step 'Retrieving Supabase API keys without printing them'
-$apiKeyOutput = & npx --yes supabase@latest projects api-keys --project-ref $SupabaseProjectRef --output json 2>&1
-Require-LastExitCode 'Supabase API keys could not be retrieved.'
-
-$apiKeys = @($apiKeyOutput | ConvertFrom-Json)
+$apiKeysJson = Invoke-NpxCommand \
+  -Arguments @('--yes', 'supabase@latest', 'projects', 'api-keys', '--project-ref', $SupabaseProjectRef, '--output', 'json') \
+  -CaptureOutput \
+  -FailureMessage 'Supabase API keys could not be retrieved.'
+$apiKeys = Convert-CommandJsonToItems -Json $apiKeysJson
 $publishableKey = Find-ApiKey -Items $apiKeys -PreferredLabels @('publishable', 'anon')
-$serverKey = Find-ApiKey -Items $apiKeys -PreferredLabels @('secret', 'service_role', 'service role')
+$serverKey = Find-ApiKey -Items $apiKeys -PreferredLabels @('service_role', 'service role', 'secret')
 
 if (-not $publishableKey) {
   throw 'No publishable or legacy anon key was returned by Supabase.'
@@ -161,21 +230,18 @@ $recoverySecret = New-RecoverySecret
 $supabaseUrl = "https://$SupabaseProjectRef.supabase.co"
 
 Write-Step 'Checking authenticated Vercel access'
-& npx --yes vercel@latest whoami --scope $VercelScope | Out-Null
-Require-LastExitCode 'Vercel CLI is not authenticated. Run: npx vercel login'
+Invoke-NpxCommand \
+  -Arguments @('--yes', 'vercel@latest', 'whoami') \
+  -FailureMessage 'Vercel CLI is not authenticated. Run: npx vercel login' | Out-Null
 
-Write-Step 'Linking the local web workspace to the Humn Vercel project'
-& npx --yes vercel@latest link \
-  --yes \
-  --project $VercelProject \
-  --scope $VercelScope \
-  --cwd apps/web | Out-Null
-Require-LastExitCode 'Could not link apps/web to the humn-web Vercel project.'
+Write-Step 'Linking this repository to the Humn Vercel project'
+Invoke-NpxCommand \
+  -Arguments @('--yes', 'vercel@latest', 'link', '--yes', '--project', $VercelProject, '--scope', $VercelScope) \
+  -FailureMessage 'Could not link this repository to the humn-web Vercel project.' | Out-Null
 
-$publicVariables = [ordered]@{
+$sharedPublicVariables = [ordered]@{
   NEXT_PUBLIC_SUPABASE_URL = $supabaseUrl
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = $publishableKey
-  NEXT_PUBLIC_SITE_URL = $ProductionUrl
 }
 
 $serverVariables = [ordered]@{
@@ -184,31 +250,24 @@ $serverVariables = [ordered]@{
 }
 
 foreach ($environment in @('production', 'preview', 'development')) {
-  Write-Step "Writing public variables to Vercel: $environment"
-  foreach ($entry in $publicVariables.GetEnumerator()) {
-    Set-VercelEnvironmentVariable \
-      -Name $entry.Key \
-      -Value ([string]$entry.Value) \
-      -Environment $environment
+  Write-Step "Writing public Supabase variables to Vercel: $environment"
+  foreach ($entry in $sharedPublicVariables.GetEnumerator()) {
+    Set-VercelEnvironmentVariable -Name $entry.Key -Value ([string]$entry.Value) -Environment $environment
   }
 
   Write-Step "Writing protected server variables to Vercel: $environment"
   foreach ($entry in $serverVariables.GetEnumerator()) {
-    Set-VercelEnvironmentVariable \
-      -Name $entry.Key \
-      -Value ([string]$entry.Value) \
-      -Environment $environment \
-      -Sensitive
+    Set-VercelEnvironmentVariable -Name $entry.Key -Value ([string]$entry.Value) -Environment $environment -Sensitive
   }
 }
 
+Write-Step 'Writing the canonical production URL'
+Set-VercelEnvironmentVariable -Name 'NEXT_PUBLIC_SITE_URL' -Value $ProductionUrl -Environment 'production'
+
 Write-Step 'Deploying Humn to production with the repaired environment'
-& npx --yes vercel@latest \
-  --prod \
-  --yes \
-  --cwd apps/web \
-  --scope $VercelScope
-Require-LastExitCode 'Production deployment failed.'
+Invoke-NpxCommand \
+  -Arguments @('--yes', 'vercel@latest', '--prod', '--yes', '--scope', $VercelScope) \
+  -FailureMessage 'Production deployment failed.' | Out-Null
 
 Write-Step 'Checking the live Discover page'
 $discoverUrl = "$($ProductionUrl.TrimEnd('/'))/discover"
