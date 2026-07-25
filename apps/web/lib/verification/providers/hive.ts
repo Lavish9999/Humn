@@ -12,11 +12,15 @@ import {
   resultFromFailure,
 } from './common';
 
+// This is Hive's model-only binary upload endpoint. The API key/project must be
+// provisioned for AI-generated media detection; Humn never makes the private
+// original publicly accessible merely to satisfy a detector URL input.
 const DEFAULT_ENDPOINT = 'https://api.thehive.ai/api/v2/task/sync';
 
 export function createHiveProvider(role: DetectorRole): DetectorProvider {
   const apiKey = process.env.HIVE_API_KEY?.trim() ?? '';
   const endpoint = process.env.HIVE_API_URL?.trim() || DEFAULT_ENDPOINT;
+  const modelVersion = process.env.HIVE_MODEL_NAME?.trim() || 'ai_generated_media';
   const configured = Boolean(apiKey);
 
   return {
@@ -29,10 +33,6 @@ export function createHiveProvider(role: DetectorRole): DetectorProvider {
       try {
         const form = new FormData();
         form.append('media', bufferAsBlob(input.bytes, input.mimeType), input.fileName);
-        form.append('models', JSON.stringify(['ai_generated_media', 'deepfake']));
-        form.append('patron_id', input.creatorId.replaceAll('_', '-'));
-        form.append('user_id', input.creatorId.replaceAll('_', '-'));
-        form.append('post_id', input.workId.replaceAll('_', '-'));
 
         const { response, body, latencyMs } = await fetchJsonWithTimeout(
           endpoint,
@@ -71,7 +71,7 @@ export function createHiveProvider(role: DetectorRole): DetectorProvider {
           role,
           detectorKind: 'ai_image',
           status: 'ok',
-          modelVersion: 'ai_generated_media+deepfake',
+          modelVersion,
           aiScore,
           authenticScore: notAiScore ?? 1 - aiScore,
           confidence: notAiScore === null
@@ -80,7 +80,11 @@ export function createHiveProvider(role: DetectorRole): DetectorProvider {
           recaptureScore: null,
           deepfakeScore,
           partialAiScore: null,
-          contentFlags: {},
+          contentFlags: {
+            confidence_basis: notAiScore === null
+              ? 'derived_distance_from_0.5'
+              : 'maximum_binary_class_confidence',
+          },
           rawResponse: body,
           errorCode: null,
           latencyMs,
