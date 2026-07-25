@@ -293,9 +293,8 @@ export async function POST(request: Request) {
     }, { status: 400 });
   }
 
-  const originalBuffer = Buffer.from(await storedObject.arrayBuffer());
   const storedFile = new File(
-    [originalBuffer],
+    [storedObject],
     stringValue(payload.fileName) || storagePath.split('/').pop() || 'original',
     { type: mimeType },
   );
