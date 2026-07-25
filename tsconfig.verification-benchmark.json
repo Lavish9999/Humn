@@ -10,7 +10,9 @@
     "declarationMap": false,
     "sourceMap": true,
     "verbatimModuleSyntax": false,
-    "isolatedModules": false
+    "isolatedModules": false,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
   },
   "files": ["scripts/verification-benchmark.ts"]
 }
