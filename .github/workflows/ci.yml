@@ -20,23 +20,7 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm install --ignore-scripts
       - run: npm run lint
-      - name: Run typecheck
-        id: typecheck
-        shell: bash
-        run: |
-          set +e
-          npm run typecheck 2>&1 | tee typecheck.log
-          status=${PIPESTATUS[0]}
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit "$status"
-      - name: Upload typecheck diagnostics
-        if: failure() && steps.typecheck.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: typecheck-diagnostics
-          path: typecheck.log
-          if-no-files-found: error
-          retention-days: 7
+      - run: npm run typecheck
       - run: npm run test
       - run: npm run build
       - run: npx expo export --platform ios --output-dir apps/mobile/dist/ios
@@ -55,22 +39,6 @@ jobs:
         with: { version: latest }
       - run: supabase start
       - run: supabase db reset
-      - name: Run database tests
-        id: database-tests
-        shell: bash
-        run: |
-          set +e
-          supabase test db 2>&1 | tee database-test.log
-          status=${PIPESTATUS[0]}
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit "$status"
-      - name: Upload database test diagnostics
-        if: failure() && steps.database-tests.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: database-test-diagnostics
-          path: database-test.log
-          if-no-files-found: error
-          retention-days: 7
+      - run: supabase test db
       - if: always()
         run: supabase stop --no-backup
