@@ -57,7 +57,8 @@ export default async function DiscoverPage({
       nextCursor = feedResult.nextCursor;
     }
     interaction = await getFeedInteractionContext(works);
-  } catch {
+  } catch (error) {
+    console.error('Discover feed load failed.', error);
     loadError = true;
   }
 
