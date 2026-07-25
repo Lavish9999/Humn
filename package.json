@@ -24,7 +24,7 @@
     "seed:dev": "supabase db reset",
     "seed:cleanup": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f supabase/seed/cleanup_test_content.sql",
     "build:web": "npm run build -w @human/web",
-    "benchmark:verification": "node --experimental-strip-types scripts/verification-benchmark.ts",
+    "benchmark:verification": "rm -rf .verification-benchmark-dist && tsc -p tsconfig.verification-benchmark.json && node .verification-benchmark-dist/scripts/verification-benchmark.js",
     "audit:deploy": "node scripts/audit-deployment-env.mjs",
     "audit:discover-mobile": "node scripts/audit-discover-mobile.mjs",
     "check:deploy": "npm run audit:deploy && npm run typecheck -w @human/web && npm run build:web"
