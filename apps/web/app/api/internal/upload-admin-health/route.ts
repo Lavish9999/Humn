@@ -7,6 +7,12 @@ import { DISPLAY_BUCKET, ORIGINAL_BUCKET } from '../../../../lib/uploads/constan
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+function configuredSupabaseVariableNames(): string[] {
+  return Object.keys(process.env)
+    .filter(name => name.toUpperCase().includes('SUPABASE'))
+    .sort();
+}
+
 export async function GET() {
   try {
     const config = resolveSupabaseAdminConfig();
@@ -28,6 +34,7 @@ export async function GET() {
 
     return NextResponse.json({
       ok,
+      configuredSupabaseVariableNames: configuredSupabaseVariableNames(),
       keySource: config.keySource,
       keyKind: config.key.startsWith('sb_secret_') ? 'secret' : 'legacy-service-role',
       projectHost: new URL(config.url).host,
@@ -53,6 +60,7 @@ export async function GET() {
     if (error instanceof SupabaseAdminConfigurationError) {
       return NextResponse.json({
         ok: false,
+        configuredSupabaseVariableNames: configuredSupabaseVariableNames(),
         errorClass: error.name,
         errorCode: error.code,
         keySource: error.keySource,
@@ -62,6 +70,7 @@ export async function GET() {
 
     return NextResponse.json({
       ok: false,
+      configuredSupabaseVariableNames: configuredSupabaseVariableNames(),
       errorClass: error instanceof Error ? error.name : 'UnknownError',
       message: error instanceof Error ? error.message : String(error),
     }, { status: 500 });
