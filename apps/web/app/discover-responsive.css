@@ -1,6 +1,6 @@
 /* Discover mobile responsiveness audit.
-   Rules are deliberately scoped to /discover except for the shared mobile nav
-   and footer touch-target fixes. Desktop behavior is unchanged. */
+   Rules are deliberately scoped to /discover except for the shared mobile nav,
+   Follow control, and footer touch-target fixes. Desktop behavior is unchanged. */
 
 @media (max-width: 640px) {
   .menu-toggle {
@@ -23,6 +23,27 @@
     visibility: visible;
     pointer-events: auto;
     transition-delay: 0s;
+  }
+
+  /* Reserve the longest Follow label so optimistic and confirmed states never reflow. */
+  .follow-button {
+    min-width: 124px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    white-space: nowrap;
+    border: 1px solid transparent;
+    font-weight: 500;
+  }
+
+  .follow-button[aria-pressed='true'] {
+    border-color: var(--ink);
+    font-weight: 500;
+  }
+
+  .follow-button-compact {
+    min-width: 104px;
   }
 
   .discover-page {
@@ -140,7 +161,7 @@
   }
 
   .discover-page .follow-button-compact {
-    min-width: 88px;
+    min-width: 104px;
   }
 
   .discover-page .panel-row {
