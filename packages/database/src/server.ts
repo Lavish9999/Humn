@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
+import { getPublicSupabaseConfig } from './config';
 
 export function createServerSupabaseClient(
   cookieStore: {
@@ -6,10 +7,8 @@ export function createServerSupabaseClient(
     setAll(cookies: { name: string; value: string; options?: Record<string, unknown> }[]): void;
   },
 ) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) throw new Error('Missing public Supabase environment variables.');
-  return createServerClient(url, anonKey, {
+  const { url, publishableKey } = getPublicSupabaseConfig();
+  return createServerClient(url, publishableKey, {
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll: (cookies) => cookieStore.setAll(cookies),
