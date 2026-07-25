@@ -1,0 +1,28 @@
+name: Verification benchmark harness
+on:
+  pull_request:
+    paths:
+      - 'scripts/verification-benchmark.ts'
+      - 'tsconfig.verification-benchmark.json'
+      - 'apps/web/lib/verification/**'
+      - 'datasets/verification/**'
+      - 'package.json'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/verification-benchmark.ts'
+      - 'tsconfig.verification-benchmark.json'
+      - 'apps/web/lib/verification/**'
+      - 'datasets/verification/**'
+      - 'package.json'
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm install --ignore-scripts
+      - run: rm -rf .verification-benchmark-dist
+      - run: npx tsc -p tsconfig.verification-benchmark.json
