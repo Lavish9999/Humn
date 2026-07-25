@@ -19,22 +19,12 @@ type PrimaryNavProps = {
 export function PrimaryNav({ initialAuth }: PrimaryNavProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const supabase = useMemo(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-      ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    return url && key ? createBrowserSupabaseClient() : null;
-  }, []);
+  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [open, setOpen] = useState(false);
   const [auth, setAuth] = useState<NavAuthState>(initialAuth);
   const [signingOut, setSigningOut] = useState(false);
 
   const loadProfile = useCallback(async (userId: string, metadata: unknown) => {
-    if (!supabase) {
-      setAuth({ status: 'signed-out' });
-      return;
-    }
-
     const { data: profile } = await supabase
       .from('users')
       .select('handle, avatar_url, is_admin, reviewer_level')
@@ -65,8 +55,6 @@ export function PrimaryNav({ initialAuth }: PrimaryNavProps) {
   useEffect(() => setOpen(false), [pathname]);
 
   useEffect(() => {
-    if (!supabase) return;
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session?.user) {
         setAuth({ status: 'signed-out' });
@@ -92,7 +80,7 @@ export function PrimaryNav({ initialAuth }: PrimaryNavProps) {
     if (signingOut) return;
     setSigningOut(true);
 
-    if (supabase) await supabase.auth.signOut();
+    await supabase.auth.signOut();
 
     setAuth({ status: 'signed-out' });
     setOpen(false);
