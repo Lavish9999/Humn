@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { resolveSupabaseAdminConfig, SupabaseAdminConfigurationError } from '../../../../lib/supabase/admin-config';
 import { getAdminSupabase } from '../../../../lib/supabase/admin';
@@ -15,8 +16,18 @@ export async function GET() {
       admin.storage.getBucket(DISPLAY_BUCKET),
     ]);
 
+    const signedPath = `health-check/${randomUUID()}.jpg`;
+    const signedUpload = original.error
+      ? { data: null, error: original.error }
+      : await admin.storage.from(ORIGINAL_BUCKET).createSignedUploadUrl(signedPath, { upsert: false });
+
+    const ok = !original.error
+      && !display.error
+      && !signedUpload.error
+      && Boolean(signedUpload.data?.token);
+
     return NextResponse.json({
-      ok: !original.error && !display.error,
+      ok,
       keySource: config.keySource,
       keyKind: config.key.startsWith('sb_secret_') ? 'secret' : 'legacy-service-role',
       projectHost: new URL(config.url).host,
@@ -32,7 +43,12 @@ export async function GET() {
           errorMessage: display.error?.message ?? null,
         },
       },
-    }, { status: original.error || display.error ? 503 : 200 });
+      signedUpload: {
+        ready: Boolean(signedUpload.data?.token) && !signedUpload.error,
+        errorClass: signedUpload.error?.name ?? null,
+        errorMessage: signedUpload.error?.message ?? null,
+      },
+    }, { status: ok ? 200 : 503 });
   } catch (error) {
     if (error instanceof SupabaseAdminConfigurationError) {
       return NextResponse.json({
