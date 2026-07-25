@@ -1,11 +1,26 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { createBrowserSupabaseClient } from '@human/database/browser';
 import { SelectChevron } from '../../components/select-chevron';
-import { ACCEPTED_IMAGE_TYPES, MAX_UPLOAD_BYTES, type UploadFieldErrors } from '../../lib/uploads/constants';
+import {
+  ACCEPTED_IMAGE_TYPES,
+  MAX_UPLOAD_BYTES,
+  ORIGINAL_BUCKET,
+  type UploadFieldErrors,
+} from '../../lib/uploads/constants';
 
 type CategoryOption = { value: string; label: string };
+
+type SignedUpload = {
+  bucket: string;
+  workId: string;
+  path: string;
+  token: string;
+  signedUrl?: string;
+  expiresInSeconds: number;
+};
 
 type UploadResponse = {
   ok: boolean;
@@ -13,10 +28,104 @@ type UploadResponse = {
   redirectTo?: string;
   fieldErrors?: UploadFieldErrors;
   formError?: string;
+  errorCode?: string;
+  upload?: SignedUpload;
 };
+
+type UploadPhase = 'idle' | 'authorizing' | 'uploading' | 'finalizing';
+
+function statusCodeFromStorageError(error: unknown): number | null {
+  if (!error || typeof error !== 'object') return null;
+  const candidate = error as { statusCode?: unknown; status?: unknown };
+  const value = candidate.statusCode ?? candidate.status;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+  return null;
+}
+
+function messageFromStorageError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string') return message;
+  }
+  return 'Unknown storage error.';
+}
+
+function friendlyStorageError(error: unknown): string {
+  const status = statusCodeFromStorageError(error);
+  const message = messageFromStorageError(error);
+  const normalized = message.toLowerCase();
+
+  if (status === 413 || normalized.includes('too large') || normalized.includes('maximum allowed size')) {
+    return 'Image exceeds the 15 MB limit.';
+  }
+  if (status === 401 || normalized.includes('jwt') || normalized.includes('not authenticated')) {
+    return 'Your session expired. Sign in again before uploading.';
+  }
+  if (
+    status === 403
+    || normalized.includes('row-level security')
+    || normalized.includes('policy')
+    || normalized.includes('permission')
+    || normalized.includes('not authorized')
+  ) {
+    return 'Supabase Storage denied this upload. Refresh the page and try again.';
+  }
+  if (status === 409 || normalized.includes('already exists') || normalized.includes('duplicate')) {
+    return 'That upload reservation was already used. Select the image and publish again.';
+  }
+  return `Supabase Storage could not accept the image: ${message}`;
+}
+
+async function readUploadResponse(response: Response): Promise<UploadResponse> {
+  const responseText = await response.text();
+  if (responseText) {
+    try {
+      return JSON.parse(responseText) as UploadResponse;
+    } catch {
+      // Vercel platform errors such as FUNCTION_PAYLOAD_TOO_LARGE are HTML or plain text.
+    }
+  }
+
+  if (response.status === 413) {
+    return {
+      ok: false,
+      errorCode: 'FILE_TOO_LARGE',
+      fieldErrors: { file: 'Image exceeds the 15 MB limit.' },
+    };
+  }
+  if (response.status === 401) {
+    return {
+      ok: false,
+      errorCode: 'AUTH_REQUIRED',
+      formError: 'Your session expired. Sign in again before uploading.',
+    };
+  }
+  if (response.status === 403) {
+    return {
+      ok: false,
+      errorCode: 'POLICY_DENIED',
+      formError: 'Upload permission was denied for this account or storage path.',
+    };
+  }
+
+  return {
+    ok: false,
+    formError: `The upload service returned HTTP ${response.status}. Try again.`,
+  };
+}
+
+function phaseLabel(phase: UploadPhase): string {
+  if (phase === 'authorizing') return 'Preparing secure upload…';
+  if (phase === 'uploading') return 'Uploading directly to storage…';
+  if (phase === 'finalizing') return 'Recording origin evidence…';
+  return 'Publish unverified work';
+}
 
 export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) {
   const router = useRouter();
+  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const fileInput = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -26,7 +135,8 @@ export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) 
   const [previewRatio, setPreviewRatio] = useState('4 / 5');
   const [fieldErrors, setFieldErrors] = useState<UploadFieldErrors>({});
   const [formError, setFormError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<UploadPhase>('idle');
+  const busy = phase !== 'idle';
 
   useEffect(() => () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -48,7 +158,12 @@ export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) 
       return;
     }
     if (next.size > MAX_UPLOAD_BYTES) {
-      setFieldErrors(current => ({ ...current, file: 'The image must be 15 MB or smaller.' }));
+      setFieldErrors(current => ({ ...current, file: 'Image exceeds the 15 MB limit.' }));
+      if (fileInput.current) fileInput.current.value = '';
+      return;
+    }
+    if (next.size <= 0) {
+      setFieldErrors(current => ({ ...current, file: 'The selected file is empty.' }));
       if (fileInput.current) fileInput.current.value = '';
       return;
     }
@@ -65,39 +180,102 @@ export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) 
     setPreviewUrl(url);
   }
 
+  function applyFailure(result: UploadResponse, fallback: string) {
+    if (result.redirectTo) {
+      router.push(result.redirectTo);
+      return;
+    }
+    setFieldErrors(result.fieldErrors ?? {});
+    setFormError(result.formError ?? fallback);
+  }
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
-    setBusy(true);
     setFieldErrors({});
     setFormError('');
 
-    const body = new FormData();
-    if (file) body.set('file', file);
-    body.set('title', title);
-    body.set('description', description);
-    body.set('category', category);
+    if (!file) {
+      setFieldErrors({ file: 'Choose one image to upload.' });
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setFieldErrors({ file: 'Image exceeds the 15 MB limit.' });
+      return;
+    }
 
     try {
-      const response = await fetch('/api/works/upload', { method: 'POST', body });
-      const result = await response.json() as UploadResponse;
-
-      if (result.redirectTo) {
-        router.push(result.redirectTo);
+      setPhase('authorizing');
+      const signResponse = await fetch('/api/works/upload/sign', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+        }),
+      });
+      const signResult = await readUploadResponse(signResponse);
+      if (!signResponse.ok || !signResult.ok || !signResult.upload) {
+        applyFailure(signResult, 'Secure upload permission could not be created.');
         return;
       }
-      if (!response.ok || !result.ok || !result.workId) {
-        setFieldErrors(result.fieldErrors ?? {});
-        setFormError(result.formError ?? 'The Work could not be uploaded.');
+
+      const upload = signResult.upload;
+      if (upload.bucket !== ORIGINAL_BUCKET) {
+        setFormError('The upload service returned an unexpected storage bucket.');
+        return;
+      }
+
+      setPhase('uploading');
+      const { error: storageError } = await supabase.storage
+        .from(upload.bucket)
+        .uploadToSignedUrl(upload.path, upload.token, file, {
+          cacheControl: '31536000',
+          contentType: file.type,
+        });
+      if (storageError) {
+        const message = friendlyStorageError(storageError);
+        if (message === 'Image exceeds the 15 MB limit.') {
+          setFieldErrors({ file: message });
+        } else {
+          setFormError(message);
+        }
+        return;
+      }
+
+      setPhase('finalizing');
+      const finalizeResponse = await fetch('/api/works/upload', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          workId: upload.workId,
+          storagePath: upload.path,
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+          title,
+          description,
+          category,
+        }),
+      });
+      const result = await readUploadResponse(finalizeResponse);
+
+      if (!finalizeResponse.ok || !result.ok || !result.workId) {
+        applyFailure(result, 'The image reached storage, but the Work could not be published.');
         return;
       }
 
       router.push(`/work/${result.workId}`);
       router.refresh();
-    } catch {
-      setFormError('The upload was interrupted. Check your connection and try again.');
+    } catch (error) {
+      if (error instanceof TypeError) {
+        setFormError('A network failure interrupted the upload. Check your connection and try again.');
+      } else {
+        setFormError(error instanceof Error ? error.message : 'The upload failed for an unknown reason.');
+      }
     } finally {
-      setBusy(false);
+      setPhase('idle');
     }
   }
 
@@ -170,11 +348,10 @@ export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) 
       </label>
 
       <p className="field-help">
-        Bare uploads are published as UNVERIFIED · SELF-DECLARED and do not enter
-        default Discover until process evidence or review is added.
+        The original uploads directly to private Supabase Storage. Humn then reads that stored original server-side to record its hash, EXIF and Content Credentials before publishing it as UNVERIFIED · SELF-DECLARED.
       </p>
       <button className="button primary" type="submit" disabled={busy}>
-        {busy ? 'Processing upload…' : 'Publish unverified work'}
+        {phaseLabel(phase)}
       </button>
       {formError ? <p className="notice" role="alert">{formError}</p> : null}
     </form>
