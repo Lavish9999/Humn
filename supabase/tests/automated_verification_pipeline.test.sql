@@ -1,0 +1,71 @@
+begin;
+select plan(33);
+
+select has_table('public', 'verification_pipeline_config', 'tunable verification config exists');
+select has_table('public', 'verification_pipeline_runs', 'verification run ledger exists');
+select has_table('public', 'verification_detector_results', 'per-provider detector evidence exists');
+select has_table('public', 'verification_audit_events', 'verification audit event ledger exists');
+
+select ok((select relrowsecurity from pg_class where oid='public.verification_pipeline_runs'::regclass), 'RLS enabled on verification runs');
+select ok((select relrowsecurity from pg_class where oid='public.verification_detector_results'::regclass), 'RLS enabled on detector results');
+select ok((select relrowsecurity from pg_class where oid='public.verification_audit_events'::regclass), 'RLS enabled on verification audit');
+
+select is((select count(*)::integer from public.verification_pipeline_config), 1, 'exactly one active threshold configuration exists');
+select is((select ai_reject_threshold from public.verification_pipeline_config where singleton), 0.9000::numeric, 'initial strong-AI threshold is explicit');
+select is((select ai_clear_threshold from public.verification_pipeline_config where singleton), 0.1000::numeric, 'initial clear threshold is explicit');
+select is((select min_confidence from public.verification_pipeline_config where singleton), 0.8000::numeric, 'initial confidence threshold is explicit');
+select is((select recapture_escalate_threshold from public.verification_pipeline_config where singleton), 0.5000::numeric, 'recapture escalation threshold is explicit');
+select is((select local_screen_escalate_threshold from public.verification_pipeline_config where singleton), 0.6000::numeric, 'local screen heuristic threshold is explicit');
+
+select has_function('public', 'claim_verification_run', array['uuid'], 'service worker claim RPC exists');
+select has_function('public', 'complete_verification_run', array['uuid','text','text','text','text','jsonb','jsonb','jsonb'], 'automated completion RPC exists');
+select has_function('public', 'resolve_escalated_verification', array['uuid','text','text'], 'human escalation resolution RPC exists');
+select has_function('public', 'get_work_verification_summary', array['uuid'], 'sanitized public verification summary RPC exists');
+
+select ok(has_function_privilege('service_role', 'public.claim_verification_run(uuid)', 'EXECUTE'), 'service role may claim queued detector work');
+select ok(not has_function_privilege('authenticated', 'public.claim_verification_run(uuid)', 'EXECUTE'), 'normal authenticated users cannot claim detector work');
+select ok(has_function_privilege('service_role', 'public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)', 'EXECUTE'), 'service role may complete automated decisions');
+select ok(not has_function_privilege('authenticated', 'public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)', 'EXECUTE'), 'normal authenticated users are denied the verification decision RPC');
+select ok(not has_function_privilege('anon', 'public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)', 'EXECUTE'), 'anonymous users are denied the verification decision RPC');
+
+select ok(not has_table_privilege('authenticated', 'public.verification_pipeline_runs', 'INSERT'), 'clients cannot fabricate pipeline runs');
+select ok(not has_table_privilege('authenticated', 'public.verification_pipeline_runs', 'UPDATE'), 'clients cannot rewrite run decisions');
+select ok(not has_table_privilege('authenticated', 'public.verification_detector_results', 'INSERT'), 'clients cannot fabricate detector scores');
+select ok(not has_table_privilege('authenticated', 'public.verification_detector_results', 'UPDATE'), 'clients cannot alter detector raw responses');
+select ok(not has_table_privilege('authenticated', 'public.verification_audit_events', 'INSERT'), 'clients cannot fabricate audit events');
+select ok(not has_column_privilege('authenticated', 'public.works', 'status', 'UPDATE'), 'normal users cannot self-assign VERIFIED through table updates');
+
+select like(
+  pg_get_functiondef('public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure),
+  '%coalesce(auth.role(), '''') <> ''service_role''%',
+  'completion RPC independently checks service_role at runtime'
+);
+select like(
+  pg_get_functiondef('public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure),
+  '%v_required_clear <> 2%',
+  'database requires two clear required detector results for VERIFIED'
+);
+select like(
+  pg_get_functiondef('public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure),
+  '%v_required_errors <> 0%',
+  'database refuses VERIFIED when a required provider errors'
+);
+select like(
+  pg_get_functiondef('public.moderate_work(uuid,public.humn_moderation_action,text)'::regprocedure),
+  '%VERIFIED is awarded only by the automated detector pipeline%',
+  'human moderation cannot award the automated VERIFIED badge'
+);
+select ok(
+  not exists (
+    select 1
+    from information_schema.role_table_grants
+    where grantee = 'authenticated'
+      and table_schema = 'public'
+      and table_name in ('verification_pipeline_config','verification_pipeline_runs','verification_detector_results','verification_audit_events')
+      and privilege_type in ('INSERT','UPDATE','DELETE')
+  ),
+  'authenticated role has no write grant anywhere inside the automated trust boundary'
+);
+
+select * from finish();
+rollback;
