@@ -25,27 +25,31 @@ select is(
   'Auth profile trigger exists'
 );
 
-select like(
-  pg_get_functiondef('public.sync_auth_user_to_humn_users()'::regprocedure),
-  '%raw_user_meta_data->>''handle''%',
+select ok(
+  position('raw_user_meta_data->>''handle''' in pg_get_functiondef(
+    'public.sync_auth_user_to_humn_users()'::regprocedure
+  )) > 0,
   'Profile trigger reads the explicit handle metadata key'
 );
 
-select like(
-  pg_get_functiondef('public.sync_auth_user_to_humn_users()'::regprocedure),
-  '%signup_source%',
+select ok(
+  position('signup_source' in pg_get_functiondef(
+    'public.sync_auth_user_to_humn_users()'::regprocedure
+  )) > 0,
   'Profile trigger distinguishes form and OAuth signups'
 );
 
-select like(
-  pg_get_functiondef('public.sync_auth_user_to_humn_users()'::regprocedure),
-  '%requires_handle_choice%',
+select ok(
+  position('requires_handle_choice' in pg_get_functiondef(
+    'public.sync_auth_user_to_humn_users()'::regprocedure
+  )) > 0,
   'Generated OAuth handles are flagged for handle choice'
 );
 
-select like(
-  pg_get_functiondef('public.next_available_humn_handle(text,uuid)'::regprocedure),
-  '%suffix_number in 2..9999%',
+select ok(
+  position('suffix_number in 2..9999' in pg_get_functiondef(
+    'public.next_available_humn_handle(text,uuid)'::regprocedure
+  )) > 0,
   'Collision handling uses numeric suffixes'
 );
 
