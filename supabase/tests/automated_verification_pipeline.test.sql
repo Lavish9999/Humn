@@ -1,5 +1,5 @@
 begin;
-select plan(33);
+select plan(37);
 
 select has_table('public', 'verification_pipeline_config', 'tunable verification config exists');
 select has_table('public', 'verification_pipeline_runs', 'verification run ledger exists');
@@ -35,24 +35,28 @@ select ok(not has_table_privilege('authenticated', 'public.verification_detector
 select ok(not has_table_privilege('authenticated', 'public.verification_audit_events', 'INSERT'), 'clients cannot fabricate audit events');
 select ok(not has_column_privilege('authenticated', 'public.works', 'status', 'UPDATE'), 'normal users cannot self-assign VERIFIED through table updates');
 
-select like(
-  pg_get_functiondef('public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure),
-  '%coalesce(auth.role(), '''') <> ''service_role''%',
+select ok(
+  position('coalesce(auth.role(), '''') <> ''service_role''' in pg_get_functiondef(
+    'public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure
+  )) > 0,
   'completion RPC independently checks service_role at runtime'
 );
-select like(
-  pg_get_functiondef('public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure),
-  '%v_required_clear <> 2%',
+select ok(
+  position('v_required_clear <> 2' in pg_get_functiondef(
+    'public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure
+  )) > 0,
   'database requires two clear required detector results for VERIFIED'
 );
-select like(
-  pg_get_functiondef('public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure),
-  '%v_required_errors <> 0%',
+select ok(
+  position('v_required_errors <> 0' in pg_get_functiondef(
+    'public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure
+  )) > 0,
   'database refuses VERIFIED when a required provider errors'
 );
-select like(
-  pg_get_functiondef('public.moderate_work(uuid,public.humn_moderation_action,text)'::regprocedure),
-  '%VERIFIED is awarded only by the automated detector pipeline%',
+select ok(
+  position('VERIFIED is awarded only by the automated detector pipeline' in pg_get_functiondef(
+    'public.moderate_work(uuid,public.humn_moderation_action,text)'::regprocedure
+  )) > 0,
   'human moderation cannot award the automated VERIFIED badge'
 );
 select ok(
@@ -66,6 +70,39 @@ select ok(
   ),
   'authenticated role has no write grant anywhere inside the automated trust boundary'
 );
+
+select has_trigger(
+  'public', 'verification_pipeline_runs', 'humn_completed_verification_run_immutable',
+  'completed run immutability trigger exists'
+);
+select has_trigger(
+  'public', 'verification_detector_results', 'humn_completed_detector_result_immutable',
+  'completed detector evidence immutability trigger exists'
+);
+select has_trigger(
+  'public', 'verification_audit_events', 'humn_verification_audit_append_only',
+  'verification audit append-only trigger exists'
+);
+
+set local role authenticated;
+select throws_ok(
+  $$
+    select public.complete_verification_run(
+      '00000000-0000-0000-0000-000000000000'::uuid,
+      'verified',
+      'CLIENT_ATTEMPT',
+      'client attempted to self verify',
+      'client',
+      '{}'::jsonb,
+      '[]'::jsonb,
+      '{}'::jsonb
+    )
+  $$,
+  '42501',
+  null,
+  'a normal authenticated account is denied when it attempts to self-verify'
+);
+reset role;
 
 select * from finish();
 rollback;
