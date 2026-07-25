@@ -1,1 +1,178 @@
-test
+/* Discover mobile responsiveness audit.
+   Rules are deliberately scoped to /discover except for the shared mobile nav
+   and footer touch-target fixes. Desktop behavior is unchanged. */
+
+@media (max-width: 640px) {
+  .menu-toggle {
+    width: 44px;
+    height: 44px;
+  }
+
+  .nav {
+    transform: none;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity var(--transition-fast),
+      visibility 0s linear var(--transition-fast);
+  }
+
+  .nav-open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
+  }
+
+  .discover-page {
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .discover-page .page-first-section {
+    padding-top: var(--space-5);
+  }
+
+  .discover-page .section-head {
+    gap: var(--space-5);
+    margin-bottom: var(--space-5);
+  }
+
+  .discover-page .section-head > div:first-child,
+  .discover-page .discover-head-actions,
+  .discover-page .feed-filter-actions {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .discover-page h1 {
+    margin-bottom: var(--space-4);
+    font-size: clamp(2.25rem, 11vw, 3rem);
+    overflow-wrap: break-word;
+  }
+
+  .discover-page .section-intro,
+  .discover-page .creator-handle,
+  .discover-page .provenance-badge,
+  .discover-page .feed-filter-group,
+  .discover-page .panel-row {
+    overflow-wrap: anywhere;
+  }
+
+  .discover-page .discover-head-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+
+  .discover-page .button,
+  .discover-page .discover-tab,
+  .discover-page .filter-choice,
+  .discover-page .follow-button-compact,
+  .discover-page .card-save-button,
+  .discover-page .card-remove-button {
+    min-height: 44px;
+  }
+
+  .discover-page .discover-head-actions .button,
+  .discover-page .feed-filter-actions .button {
+    width: 100%;
+    padding-inline: var(--space-3);
+  }
+
+  .discover-page .discover-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .discover-page .discover-tab {
+    display: flex;
+    align-items: center;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .discover-page .discover-tab:last-child {
+    border-bottom: 0;
+  }
+
+  .discover-page .feed-filter-panel,
+  .discover-page .masonry-shell,
+  .discover-page .ruled-panel,
+  .discover-page .editorial-empty {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .discover-page .feed-filter-group {
+    padding: var(--space-4);
+  }
+
+  .discover-page .filter-choice {
+    align-items: center;
+    padding-block: var(--space-2);
+  }
+
+  .discover-page .feed-filter-actions {
+    padding: var(--space-3);
+  }
+
+  .discover-page .masonry {
+    column-count: 1;
+    column-gap: 0;
+    column-rule: 0;
+  }
+
+  .discover-page .work-card {
+    max-width: 100%;
+    margin-bottom: var(--space-4);
+    overflow: hidden;
+  }
+
+  .discover-page .work-card-creator-row {
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .discover-page .follow-control {
+    max-width: 100%;
+  }
+
+  .discover-page .follow-button-compact {
+    min-width: 88px;
+  }
+
+  .discover-page .panel-row {
+    grid-template-columns: 1fr;
+  }
+
+  .discover-page :where(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+    font-size: 1rem;
+  }
+
+  .discover-page img:not(.work-media) {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .discover-page :where(video, iframe, embed) {
+    max-width: 100%;
+  }
+
+  .site-footer .footer-links a {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+}
+
+@media (max-width: 375px) {
+  .discover-page .discover-head-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .discover-page h1 {
+    font-size: 2.25rem;
+  }
+}
