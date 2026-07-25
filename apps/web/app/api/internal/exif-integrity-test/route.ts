@@ -41,7 +41,8 @@ export async function GET() {
     })
     .toBuffer();
 
-  const file = new File([original], 'iphone-original.jpg', { type: 'image/jpeg' });
+  const originalBytes = Uint8Array.from(original);
+  const file = new File([originalBytes], 'iphone-original.jpg', { type: 'image/jpeg' });
   const processed = await processUploadedImage(file);
   const provenance = await analyzeUploadedProvenance(processed, 'uploaded', {
     scanStatus: 'complete',
