@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { OriginInput } from '../uploads/constants';
+import type { ClientOriginalEvidence } from '../uploads/exif-evidence';
 import type { ProcessedUpload } from '../uploads/process-image';
 import { readC2paSummary, type C2paSummary } from './c2pa';
 
@@ -16,14 +17,12 @@ export type ProvenanceAnalysis = {
   c2pa: C2paSummary;
 };
 
-function exifSignal(processed: ProcessedUpload): StoredProvenanceSignal {
-  const presentFields = [
-    processed.captureDevice,
-    processed.lens,
-    processed.iso,
-    processed.shutter,
-    processed.capturedAt,
-  ].filter(value => value !== null).length;
+function exifSignal(
+  processed: ProcessedUpload,
+  clientEvidence: ClientOriginalEvidence | null,
+): StoredProvenanceSignal {
+  const presentFields = processed.exif.usableFieldCount;
+  const clientFields = clientEvidence?.exif?.usableFieldCount ?? null;
 
   return {
     signal_name: 'exif_consistency',
@@ -31,10 +30,30 @@ function exifSignal(processed: ProcessedUpload): StoredProvenanceSignal {
       state: presentFields > 0 ? 'present' : 'none',
       present: presentFields > 0,
       plausible_field_count: presentFields,
-      capture_timestamp_present: Boolean(processed.capturedAt),
+      capture_timestamp_present: Boolean(processed.exif.capturedAt),
+      device_present: Boolean(processed.exif.captureDevice),
+      lens_present: Boolean(processed.exif.lens),
+      iso_present: processed.exif.iso !== null,
+      shutter_present: Boolean(processed.exif.shutter),
+      focal_length_present: processed.exif.focalLengthMm !== null,
+      focal_length_mm: processed.exif.focalLengthMm,
+      orientation: processed.exif.orientation,
+      gps_metadata_present: processed.exif.gpsMetadataPresent,
+      exif_segment_bytes: processed.exifSegmentBytes,
+      browser_selection_scan: clientEvidence ? {
+        status: clientEvidence.scanStatus,
+        usable_field_count: clientFields,
+        gps_metadata_present: clientEvidence.exif?.gpsMetadataPresent ?? false,
+        original_hash_matched: clientEvidence.sha256 === processed.sha256,
+      } : {
+        status: 'not_provided',
+      },
+      privacy: 'Precise GPS coordinates are retained only inside the private original object and are not copied into the public provenance record.',
       note: presentFields > 0
-        ? 'Camera metadata was recorded from the uploaded file.'
-        : 'No usable EXIF fields were present. This is neutral and is not evidence against the creator.',
+        ? 'Camera metadata was recorded from the untouched original file.'
+        : clientEvidence?.scanStatus === 'complete' && clientFields === 0
+          ? 'The browser-supplied original already contained no usable camera EXIF before upload. This is neutral and is not evidence against the creator.'
+          : 'No usable EXIF fields were present. This is neutral and is not evidence against the creator.',
     },
     weight: presentFields >= 3 ? 8 : presentFields > 0 ? 4 : 0,
   };
@@ -78,11 +97,12 @@ function originSignal(originInput: OriginInput): StoredProvenanceSignal {
 export async function analyzeUploadedProvenance(
   processed: ProcessedUpload,
   originInput: OriginInput,
+  clientEvidence: ClientOriginalEvidence | null = null,
 ): Promise<ProvenanceAnalysis> {
   const c2pa = await readC2paSummary(processed.original, processed.originalMimeType);
   return {
     c2pa,
     aiDeclared: c2pa.aiGenerated,
-    signals: [c2paSignal(c2pa), exifSignal(processed), originSignal(originInput)],
+    signals: [c2paSignal(c2pa), exifSignal(processed, clientEvidence), originSignal(originInput)],
   };
 }
