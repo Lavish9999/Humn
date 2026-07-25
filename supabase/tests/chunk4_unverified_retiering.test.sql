@@ -13,18 +13,18 @@ select is(
 );
 select is(
   (select badge_label from public.derive_work_badge('verified', 1, false)),
-  'VERIFIED · 1 PROOF',
-  'verified singular proof label is correct'
+  'VERIFIED · AUTOMATED CLEAR',
+  'verified badge explicitly describes an automated clear'
 );
 select is(
   (select badge_label from public.derive_work_badge('verified', 2, false)),
-  'VERIFIED · 2 PROOFS',
-  'verified plural proof label is correct'
+  'VERIFIED · AUTOMATED CLEAR',
+  'verified copy does not imply human review or depend on proof-count grammar'
 );
 select is(
   (select badge_label from public.derive_work_badge('awaiting', 1, false)),
-  'AWAITING REVIEW',
-  'awaiting with evidence retains the awaiting label'
+  'AWAITING AUTOMATED REVIEW',
+  'awaiting with evidence explicitly names automated review'
 );
 select is(
   (select badge_label from public.derive_work_badge('awaiting', 0, false)),
@@ -34,13 +34,18 @@ select is(
 select is(
   (select badge_label from public.derive_work_badge('verified', 4, true)),
   'UNVERIFIED · SELF-DECLARED',
-  'legacy AI-declared rows never render a human trust badge'
+  'legacy AI-declared rows never render an automated trust badge'
 );
 
 select is(
-  (select count(*)::integer from public.get_work_feed(null, null, null, 60) where badge_variant = 'unverified'),
+  (select count(*)::integer
+   from public.get_work_feed(null, null, null, 60) feed
+   join public.works w on w.id = feed.id
+   where not public.is_default_discoverable_work(
+     w.id, w.status, w.proof_count, w.origin_input, w.ai_declared
+   )),
   0,
-  'default Discover excludes bare unverified Works'
+  'default Discover excludes every Work that fails the discoverability invariant'
 );
 select is(
   (select count(*)::integer from public.get_work_feed(null, null, null, 60) where ai_declared),
@@ -59,10 +64,13 @@ select is(
 
 select is(
   (select count(*)::integer
-   from public.search_work_feed('test', 60, false)
-   where badge_variant = 'unverified'),
+   from public.search_work_feed('test', null, null, null, 60) feed
+   join public.works w on w.id = feed.id
+   where not public.is_default_discoverable_work(
+     w.id, w.status, w.proof_count, w.origin_input, w.ai_declared
+   )),
   0,
-  'default Search excludes unverified Works'
+  'default Search excludes Works outside the default discoverability invariant'
 );
 select ok(
   (select count(*) from pg_proc where oid = 'public.get_unverified_work_feed(integer,timestamp with time zone,uuid,integer)'::regprocedure) = 1,
@@ -80,14 +88,16 @@ select ok(
   not has_function_privilege('anon', 'public.get_my_unverified_works(integer)', 'EXECUTE'),
   'anonymous users cannot read a creator account prompt list'
 );
-select like(
-  obj_description('public.get_work_feed(integer,timestamp with time zone,uuid,integer)'::regprocedure),
-  '%Bare uploads are excluded%',
+select ok(
+  position('Bare uploads are excluded' in obj_description(
+    'public.get_work_feed(integer,timestamp with time zone,uuid,integer)'::regprocedure
+  )) > 0,
   'default-feed honesty invariant is documented'
 );
-select like(
-  obj_description('public.get_unverified_work_feed(integer,timestamp with time zone,uuid,integer)'::regprocedure),
-  '%Absence of provenance is neutral%',
+select ok(
+  position('Absence of provenance is neutral' in obj_description(
+    'public.get_unverified_work_feed(integer,timestamp with time zone,uuid,integer)'::regprocedure
+  )) > 0,
   'unverified-feed neutrality invariant is documented'
 );
 
