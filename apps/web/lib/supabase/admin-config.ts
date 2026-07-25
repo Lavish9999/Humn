@@ -80,14 +80,47 @@ function resolveAdminKey(): { key: string; source: string } {
   return { key, source };
 }
 
+function normalizeSupabaseProjectUrl(value: string | undefined): string | null {
+  const candidate = value?.trim();
+  if (!candidate) return null;
+
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== 'https:' || !url.hostname.endsWith('.supabase.co')) {
+      return null;
+    }
+    url.pathname = '';
+    url.search = '';
+    url.hash = '';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
 export function resolveSupabaseAdminConfig() {
   const publicConfig = getPublicSupabaseConfig();
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || publicConfig.url?.trim();
+  const environmentUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const url = normalizeSupabaseProjectUrl(environmentUrl)
+    ?? normalizeSupabaseProjectUrl(publicConfig.url);
+
   if (!url) {
     throw new SupabaseAdminConfigurationError(
       'SUPABASE_ADMIN_URL_MISSING',
-      'The Supabase project URL is missing from the server environment and public configuration.',
+      'The Supabase project URL is missing or invalid in both the server environment and verified public configuration.',
     );
+  }
+
+  if (environmentUrl && !normalizeSupabaseProjectUrl(environmentUrl)) {
+    console.warn('[supabase-admin-config] Ignoring invalid NEXT_PUBLIC_SUPABASE_URL and using verified Humn Supabase configuration.', {
+      configuredHost: (() => {
+        try {
+          return new URL(environmentUrl).host;
+        } catch {
+          return 'invalid-url';
+        }
+      })(),
+    });
   }
 
   const { key, source } = resolveAdminKey();
