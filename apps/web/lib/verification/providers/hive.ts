@@ -12,15 +12,20 @@ import {
   resultFromFailure,
 } from './common';
 
-// This is Hive's model-only binary upload endpoint. The API key/project must be
-// provisioned for AI-generated media detection; Humn never makes the private
-// original publicly accessible merely to satisfy a detector URL input.
-const DEFAULT_ENDPOINT = 'https://api.thehive.ai/api/v2/task/sync';
+// Hive V3 Playground model for AI-generated and deepfake content detection.
+// The private original is streamed directly as multipart bytes; Humn never makes
+// the source object publicly accessible merely to satisfy a detector URL input.
+const DEFAULT_ENDPOINT = 'https://api.thehive.ai/api/v3/hive/ai-generated-and-deepfake-content-detection';
+const DEFAULT_MODEL = 'hive/ai-generated-and-deepfake-content-detection';
 
 export function createHiveProvider(role: DetectorRole): DetectorProvider {
-  const apiKey = process.env.HIVE_API_KEY?.trim() ?? '';
+  // Prefer the explicit V3 name. HIVE_API_KEY remains as a temporary legacy
+  // fallback for environments that already stored the same V3 secret there.
+  const apiKey = process.env.HIVE_V3_SECRET_KEY?.trim()
+    || process.env.HIVE_API_KEY?.trim()
+    || '';
   const endpoint = process.env.HIVE_API_URL?.trim() || DEFAULT_ENDPOINT;
-  const modelVersion = process.env.HIVE_MODEL_NAME?.trim() || 'ai_generated_media';
+  const modelVersion = process.env.HIVE_MODEL_NAME?.trim() || DEFAULT_MODEL;
   const configured = Boolean(apiKey);
 
   return {
@@ -38,7 +43,7 @@ export function createHiveProvider(role: DetectorRole): DetectorProvider {
           endpoint,
           {
             method: 'POST',
-            headers: { authorization: `Token ${apiKey}` },
+            headers: { authorization: `Bearer ${apiKey}` },
             body: form,
           },
           input.timeoutMs,
@@ -81,6 +86,7 @@ export function createHiveProvider(role: DetectorRole): DetectorProvider {
           deepfakeScore,
           partialAiScore: null,
           contentFlags: {
+            api_version: 'v3_playground',
             confidence_basis: notAiScore === null
               ? 'derived_distance_from_0.5'
               : 'maximum_binary_class_confidence',
