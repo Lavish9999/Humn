@@ -25,15 +25,17 @@
     "seed:cleanup": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f supabase/seed/cleanup_test_content.sql",
     "build:web": "npm run build -w @human/web",
     "audit:deploy": "node scripts/audit-deployment-env.mjs",
+    "audit:discover-mobile": "node scripts/audit-discover-mobile.mjs",
     "check:deploy": "npm run audit:deploy && npm run typecheck -w @human/web && npm run build:web"
   },
   "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@playwright/test": "^1.55.0",
     "@types/node": "^24.0.0",
     "eslint": "^9.0.0",
     "prettier": "^3.5.0",
     "supabase": "^2.34.3",
     "typescript": "^5.9.0",
-    "@eslint/js": "^9.0.0",
     "typescript-eslint": "^8.0.0"
   },
   "allowScripts": {
