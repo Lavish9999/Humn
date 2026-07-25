@@ -96,13 +96,20 @@ function extensionFor(mimeType: AcceptedImageType): 'jpg' | 'png' | 'webp' {
   return 'jpg';
 }
 
+function mimeTypeForSharpFormat(format: string): AcceptedImageType | null {
+  if (format === 'jpeg') return 'image/jpeg';
+  if (format === 'png') return 'image/png';
+  if (format === 'webp') return 'image/webp';
+  return null;
+}
+
 export async function processUploadedImage(file: File): Promise<ProcessedUpload> {
   if (!isAcceptedImageType(file.type)) {
     throw new Error('Choose a JPEG, PNG, or WebP image.');
   }
   const originalMimeType = file.type;
   if (file.size <= 0) throw new Error('The selected file is empty.');
-  if (file.size > MAX_UPLOAD_BYTES) throw new Error('The image must be 15 MB or smaller.');
+  if (file.size > MAX_UPLOAD_BYTES) throw new Error('Image exceeds the 15 MB limit.');
 
   const original = Buffer.from(await file.arrayBuffer());
   const source = sharp(original, { limitInputPixels: 100_000_000, failOn: 'error' });
@@ -110,6 +117,10 @@ export async function processUploadedImage(file: File): Promise<ProcessedUpload>
 
   if (!metadata.format || !SUPPORTED_SHARP_FORMATS.has(metadata.format)) {
     throw new Error('The file contents are not a supported JPEG, PNG, or WebP image.');
+  }
+  const detectedMimeType = mimeTypeForSharpFormat(metadata.format);
+  if (!detectedMimeType || detectedMimeType !== originalMimeType) {
+    throw new Error('The image contents do not match the declared file type.');
   }
   if (!metadata.width || !metadata.height) {
     throw new Error('The image dimensions could not be read.');
