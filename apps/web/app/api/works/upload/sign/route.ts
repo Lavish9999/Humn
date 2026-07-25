@@ -10,6 +10,10 @@ import {
 import { ensureWorkUploadBuckets } from '../../../../../lib/uploads/ensure-work-buckets';
 import { getPostingRestriction } from '../../../../../lib/uploads/posting-access';
 import {
+  adminConfigurationFailureResponse,
+  storageAdministrationFailureResponse,
+} from '../../../../../lib/uploads/admin-failures';
+import {
   buildOriginalStoragePath,
   validateUploadDescriptor,
   type WorkUploadDescriptor,
@@ -30,6 +34,7 @@ export async function POST(request: Request) {
   if (authError || !authData.user) {
     return NextResponse.json({
       ok: false,
+      errorClass: 'UploadAuthenticationError',
       errorCode: 'AUTH_REQUIRED',
       formError: 'Your session expired. Sign in again before uploading.',
       redirectTo: '/signin?next=%2Fshare',
@@ -44,10 +49,12 @@ export async function POST(request: Request) {
   if (profileError) {
     logSignError('Profile lookup failed.', {
       userId: authData.user.id,
+      errorClass: 'CreatorProfileLookupError',
       error: profileError.message,
     });
     return NextResponse.json({
       ok: false,
+      errorClass: 'CreatorProfileLookupError',
       errorCode: 'PROFILE_LOOKUP_FAILED',
       formError: 'Your creator profile could not be checked. Try again.',
     }, { status: 500 });
@@ -55,7 +62,9 @@ export async function POST(request: Request) {
   if (!profile) {
     return NextResponse.json({
       ok: false,
+      errorClass: 'CreatorProfileRequiredError',
       errorCode: 'PROFILE_REQUIRED',
+      formError: 'Complete your creator profile before publishing.',
       redirectTo: '/complete-profile',
     }, { status: 409 });
   }
@@ -66,10 +75,12 @@ export async function POST(request: Request) {
   } catch (error) {
     logSignError('Request JSON could not be read.', {
       userId: authData.user.id,
+      errorClass: error instanceof Error ? error.name : 'UnknownError',
       error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json({
       ok: false,
+      errorClass: 'UploadRequestParseError',
       errorCode: 'INVALID_REQUEST',
       formError: 'The upload request could not be read.',
     }, { status: 400 });
@@ -85,35 +96,44 @@ export async function POST(request: Request) {
     const fileTooLarge = descriptor.fileSize > MAX_UPLOAD_BYTES;
     return NextResponse.json({
       ok: false,
+      errorClass: fileTooLarge ? 'UploadSizeLimitError' : 'UploadValidationError',
       errorCode: fileTooLarge ? 'FILE_TOO_LARGE' : 'INVALID_FILE',
       fieldErrors,
     }, { status: fileTooLarge ? 413 : 400 });
   }
 
-  const admin = getAdminSupabase();
+  let admin: ReturnType<typeof getAdminSupabase>;
+  try {
+    admin = getAdminSupabase();
+  } catch (error) {
+    const configurationFailure = adminConfigurationFailureResponse(error, 'sign', {
+      userId: authData.user.id,
+    });
+    if (configurationFailure) return configurationFailure;
+    throw error;
+  }
+
   try {
     await ensureWorkUploadBuckets(admin);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logSignError('Work bucket configuration could not be enforced.', {
-      userId: authData.user.id,
-      error: message,
+    return storageAdministrationFailureResponse({
+      context: 'sign',
+      step: 'bucket-configuration',
+      message: error instanceof Error ? error.message : String(error),
+      details: { userId: authData.user.id },
     });
-    return NextResponse.json({
-      ok: false,
-      errorCode: 'STORAGE_CONFIGURATION_FAILED',
-      formError: 'Storage could not be prepared for a 15 MB image. Try again shortly.',
-    }, { status: 500 });
   }
 
   const posting = await getPostingRestriction(admin, authData.user.id);
   if (posting.error) {
     logSignError('Posting status RPC failed.', {
       userId: authData.user.id,
+      errorClass: 'PostingStatusRpcError',
       error: posting.error,
     });
     return NextResponse.json({
       ok: false,
+      errorClass: 'PostingStatusRpcError',
       errorCode: 'POSTING_STATUS_FAILED',
       formError: 'Posting status could not be checked. Try again.',
     }, { status: 500 });
@@ -121,6 +141,7 @@ export async function POST(request: Request) {
   if (posting.restriction) {
     return NextResponse.json({
       ok: false,
+      errorClass: 'PostingRestrictionError',
       errorCode: 'POSTING_RESTRICTED',
       formError: posting.restriction,
     }, { status: 403 });
@@ -137,17 +158,16 @@ export async function POST(request: Request) {
     .createSignedUploadUrl(path, { upsert: false });
 
   if (error || !data?.token) {
-    logSignError('Supabase signed upload URL creation failed.', {
-      userId: authData.user.id,
-      workId,
-      path,
-      error: error?.message ?? 'Missing upload token.',
+    return storageAdministrationFailureResponse({
+      context: 'sign',
+      step: 'signed-url',
+      message: error?.message ?? 'Supabase returned no signed-upload token.',
+      details: {
+        userId: authData.user.id,
+        workId,
+        path,
+      },
     });
-    return NextResponse.json({
-      ok: false,
-      errorCode: 'SIGNED_URL_FAILED',
-      formError: 'Upload permission could not be created. Try again.',
-    }, { status: 500 });
   }
 
   return NextResponse.json({
