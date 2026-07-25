@@ -51,6 +51,23 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  web-verification-pipeline:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: local-ci-placeholder
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_ENV: development
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm install --ignore-scripts
+      - run: npm run lint -w @human/web
+      - run: npm run typecheck -w @human/web
+      - run: npm run test -w @human/web
+      - run: npm run build -w @human/web
+
   database:
     runs-on: ubuntu-latest
     steps:
