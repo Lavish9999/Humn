@@ -11,8 +11,25 @@ const values = [
 ] as const;
 const utilityIndex = [['14','Strongly Verified','/discover?tier=verified'],['15','Following','/discover?view=following'],['16','Discover','/discover']] as const;
 
+function hasPublicSupabaseConfig() {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL
+      && (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+  );
+}
+
 export default async function HomePage() {
-  const { items: works } = await getWorkFeed({ limit: 8 });
+  let works: Awaited<ReturnType<typeof getWorkFeed>>['items'] = [];
+
+  if (hasPublicSupabaseConfig()) {
+    try {
+      const feed = await getWorkFeed({ limit: 8 });
+      works = feed.items;
+    } catch (error) {
+      console.error('Homepage feed lookup failed.', error);
+    }
+  }
+
   return <main className="home-page">
     <section className="shell hero page-first-section"><div className="hero-grid"><div><div className="eyebrow">Human-made / human-verified</div><h1>Real inspiration exists.</h1><p className="hero-copy">Discover work made by people, inspect the evidence behind it, organize ideas into Collections, and support the creator who actually made it.</p><div className="actions"><Link className="button primary" href="/discover">Explore discover</Link><Link className="button" href="/share">Share your work</Link></div></div><aside className="hero-index" aria-label="Platform index"><div className="meta">Catalogue / 001</div><ul className="hero-index-list"><li><span>Format</span><span>Visual discovery</span></li><li><span>Focus</span><span>Human-created work</span></li><li><span>Evidence</span><span>Origin + process</span></li><li><span>Standard</span><span>Credible, not absolute</span></li></ul></aside></div></section>
     <section className="value-grid" aria-label="How verification works">{values.map(([kicker,copy])=><article className="value-item" key={kicker}><div className="section-kicker">{kicker}</div><p>{copy}</p></article>)}</section>
