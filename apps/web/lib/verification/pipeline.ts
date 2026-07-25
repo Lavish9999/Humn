@@ -55,6 +55,17 @@ function serializeResult(result: DetectorResult): Record<string, unknown> {
   };
 }
 
+function serializeScreen(screen: ScreenHeuristicResult): Record<string, unknown> {
+  return {
+    score: screen.score,
+    suspected: screen.suspected,
+    coverage: screen.coverage,
+    signals: screen.signals,
+    reasons: screen.reasons,
+    limitations: screen.limitations,
+  };
+}
+
 function pipelineErrorResult(error: unknown): DetectorResult {
   return {
     provider: 'humn_pipeline',
@@ -110,16 +121,17 @@ async function loadProvenanceInputs(
   ]);
   if (workError || !work) throw new Error(`Work provenance lookup failed: ${workError?.message ?? 'missing work'}`);
   if (signalError) throw new Error(`Provenance signal lookup failed: ${signalError.message}`);
-  const rows = (signals ?? []) as Array<{ signal_name: string; value: unknown }>;
+  const workRecord = work as unknown as { origin_input: string; ai_declared: boolean };
+  const rows = (signals ?? []) as unknown as Array<{ signal_name: string; value: unknown }>;
   const c2pa = record(rows.find(row => row.signal_name === 'c2pa')?.value);
   const duplicate = record(rows.find(row => row.signal_name === 'duplicate_hash')?.value);
   const exif = record(rows.find(row => row.signal_name === 'exif_consistency')?.value);
   return {
-    c2paExplicitAi: work.ai_declared === true || c2pa.ai_generation_asserted === true,
+    c2paExplicitAi: workRecord.ai_declared === true || c2pa.ai_generation_asserted === true,
     duplicateHash: duplicate.duplicate === true,
     c2paCameraCapture: c2pa.camera_capture_asserted === true,
     exifUsableFieldCount: typeof exif.plausible_field_count === 'number' ? exif.plausible_field_count : 0,
-    originInput: work.origin_input === 'captured_in_app' ? 'captured_in_app' : 'uploaded',
+    originInput: workRecord.origin_input === 'captured_in_app' ? 'captured_in_app' : 'uploaded',
   };
 }
 
@@ -139,7 +151,7 @@ async function completeRun(
     p_pipeline_version: thresholds.pipelineVersion,
     p_thresholds: thresholdSnapshot(thresholds),
     p_results: results.map(serializeResult),
-    p_screen_heuristics: screen,
+    p_screen_heuristics: serializeScreen(screen),
   });
   if (error) throw new Error(`Verification completion RPC failed: ${error.message}`);
 }
@@ -166,7 +178,8 @@ async function executeClaimedRun(
   };
 
   try {
-    thresholds = await loadVerificationThresholds(admin);
+    const loadedThresholds = await loadVerificationThresholds(admin);
+    thresholds = loadedThresholds;
     const original = await locateOriginal(admin, claim.creator_id, claim.work_id);
     const metadata = await sharp(original.bytes, { failOn: 'error', limitInputPixels: 100_000_000 }).metadata();
     if (!metadata.width || !metadata.height) throw new Error('Original dimensions could not be read.');
@@ -176,14 +189,14 @@ async function executeClaimedRun(
       original.bytes,
       metadata.width,
       metadata.height,
-      thresholds.localScreenEscalateThreshold,
+      loadedThresholds.localScreenEscalateThreshold,
     );
 
     const providers = [
-      createDetectorProvider(thresholds.primaryProvider, 'primary'),
-      createDetectorProvider(thresholds.secondaryProvider, 'secondary'),
+      createDetectorProvider(loadedThresholds.primaryProvider, 'primary'),
+      createDetectorProvider(loadedThresholds.secondaryProvider, 'secondary'),
     ];
-    if (thresholds.optionalProviderEnabled) {
+    if (loadedThresholds.optionalProviderEnabled) {
       providers.push(createDetectorProvider('illuminarty', 'optional'));
     }
 
@@ -193,11 +206,16 @@ async function executeClaimedRun(
       fileName: original.fileName,
       workId: claim.work_id,
       creatorId: claim.creator_id,
-      timeoutMs: thresholds.providerTimeoutMs,
+      timeoutMs: loadedThresholds.providerTimeoutMs,
     })));
 
-    const decision = evaluateVerificationDecision({ results, provenance, screen, thresholds });
-    await completeRun(admin, claim, thresholds, results, screen, decision);
+    const decision = evaluateVerificationDecision({
+      results,
+      provenance,
+      screen,
+      thresholds: loadedThresholds,
+    });
+    await completeRun(admin, claim, loadedThresholds, results, screen, decision);
     return {
       processed: true,
       workId: claim.work_id,
@@ -243,7 +261,10 @@ async function executeClaimedRun(
   }
 }
 
-async function claimRun(workId: string | null): Promise<{ admin: ReturnType<typeof getAdminSupabase>; claim: ClaimedVerificationRun | null }> {
+async function claimRun(workId: string | null): Promise<{
+  admin: ReturnType<typeof getAdminSupabase>;
+  claim: ClaimedVerificationRun | null;
+}> {
   const admin = getAdminSupabase();
   const { data, error } = await admin.rpc('claim_verification_run', { p_work_id: workId });
   if (error) throw new Error(`Verification claim RPC failed: ${error.message}`);
