@@ -53,7 +53,12 @@ export async function GET() {
     errorClass: null,
   });
   const originalExif = await exifr.parse(original, true) as Record<string, unknown> | null;
-  const displayExif = await exifr.parse(processed.display, true) as Record<string, unknown> | null;
+  let displayExif: Record<string, unknown> | null = null;
+  try {
+    displayExif = await exifr.parse(processed.display, true) as Record<string, unknown> | null;
+  } catch {
+    displayExif = null;
+  }
   const exifSignal = provenance.signals.find(signal => signal.signal_name === 'exif_consistency');
   const publicSignalText = JSON.stringify(exifSignal?.value ?? {});
 
