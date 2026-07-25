@@ -1,5 +1,6 @@
-import { pluralize } from '../lib/pluralize';
 import type { ProvenanceVariant } from '../lib/data/types';
+
+export const AUTOMATED_VERIFIED_EXPLANATION = "Cleared by Humn's automated origin detectors.";
 
 export function deriveProvenance({
   proofCount,
@@ -16,12 +17,12 @@ export function deriveProvenance({
   if (reviewComplete && normalizedProofCount >= 1) {
     return {
       variant: 'verified',
-      label: `VERIFIED · ${pluralize(normalizedProofCount, 'PROOF', 'PROOFS')}`,
+      label: 'VERIFIED · AUTOMATED CLEAR',
     };
   }
 
   if (normalizedProofCount >= 1) {
-    return { variant: 'awaiting', label: 'AWAITING REVIEW' };
+    return { variant: 'awaiting', label: 'AWAITING AUTOMATED REVIEW' };
   }
 
   return { variant: 'unverified', label: 'UNVERIFIED · SELF-DECLARED' };
@@ -41,11 +42,18 @@ export function ProvenanceBadge({
   const provenance = variant && label
     ? { variant, label }
     : deriveProvenance({ proofCount, reviewComplete });
+  const explanation = provenance.variant === 'verified'
+    ? AUTOMATED_VERIFIED_EXPLANATION
+    : provenance.variant === 'awaiting'
+      ? 'Automated detectors are running or the result has been escalated because they could not safely agree.'
+      : 'The creator supplied this Work, but Humn has not cleared it through the automated detector pipeline.';
 
   return (
     <span
       className="badge provenance-badge"
       data-variant={provenance.variant}
+      title={explanation}
+      aria-label={`${provenance.label}. ${explanation}`}
     >
       {provenance.label}
     </span>
