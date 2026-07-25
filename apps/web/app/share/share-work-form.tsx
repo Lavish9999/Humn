@@ -10,6 +10,8 @@ import {
   ORIGINAL_BUCKET,
   type UploadFieldErrors,
 } from '../../lib/uploads/constants';
+import type { ClientOriginalEvidence } from '../../lib/uploads/exif-evidence';
+import { inspectClientOriginal } from '../../lib/uploads/inspect-client-original';
 
 type CategoryOption = { value: string; label: string };
 
@@ -33,6 +35,7 @@ type UploadResponse = {
 };
 
 type UploadPhase = 'idle' | 'authorizing' | 'uploading' | 'finalizing';
+type ScanPhase = 'idle' | 'scanning' | 'complete' | 'failed';
 
 function statusCodeFromStorageError(error: unknown): number | null {
   if (!error || typeof error !== 'object') return null;
@@ -116,17 +119,33 @@ async function readUploadResponse(response: Response): Promise<UploadResponse> {
   };
 }
 
-function phaseLabel(phase: UploadPhase): string {
+function phaseLabel(phase: UploadPhase, scanPhase: ScanPhase): string {
+  if (scanPhase === 'scanning') return 'Reading original metadata…';
   if (phase === 'authorizing') return 'Preparing secure upload…';
   if (phase === 'uploading') return 'Uploading directly to storage…';
   if (phase === 'finalizing') return 'Recording origin evidence…';
   return 'Publish unverified work';
 }
 
+function metadataNotice(evidence: ClientOriginalEvidence | null, scanPhase: ScanPhase): string | null {
+  if (scanPhase === 'scanning') {
+    return 'Humn is hashing and reading metadata from the untouched browser file before anything is uploaded.';
+  }
+  if (scanPhase === 'failed') {
+    return 'Humn could not inspect this file in the browser. The server will still inspect the stored original before publishing.';
+  }
+  if (!evidence?.exif) return null;
+  if (evidence.exif.usableFieldCount > 0) {
+    return `Original-file scan found ${evidence.exif.usableFieldCount} usable camera metadata field${evidence.exif.usableFieldCount === 1 ? '' : 's'}. Humn will verify they survive the direct upload.`;
+  }
+  return 'This selected copy already contains no usable camera EXIF before upload. On iPhone, choose the unmodified original from Files or export “Unmodified Original” to preserve camera metadata. Missing EXIF remains neutral.';
+}
+
 export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) {
   const router = useRouter();
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const fileInput = useRef<HTMLInputElement>(null);
+  const selectionSequence = useRef(0);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState(categories[0]?.value ?? '');
@@ -136,13 +155,17 @@ export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) 
   const [fieldErrors, setFieldErrors] = useState<UploadFieldErrors>({});
   const [formError, setFormError] = useState('');
   const [phase, setPhase] = useState<UploadPhase>('idle');
-  const busy = phase !== 'idle';
+  const [scanPhase, setScanPhase] = useState<ScanPhase>('idle');
+  const [clientOriginalEvidence, setClientOriginalEvidence] = useState<ClientOriginalEvidence | null>(null);
+  const busy = phase !== 'idle' || scanPhase === 'scanning';
 
   useEffect(() => () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
 
-  function chooseFile(next: File | null) {
+  async function chooseFile(next: File | null) {
+    const sequence = selectionSequence.current + 1;
+    selectionSequence.current = sequence;
     setFieldErrors(current => {
       const { file: _fileError, ...remaining } = current;
       return remaining;
@@ -150,6 +173,8 @@ export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) 
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
     setFile(null);
+    setClientOriginalEvidence(null);
+    setScanPhase('idle');
 
     if (!next) return;
     if (!ACCEPTED_IMAGE_TYPES.includes(next.type as (typeof ACCEPTED_IMAGE_TYPES)[number])) {
@@ -178,6 +203,25 @@ export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) 
     image.src = url;
     setFile(next);
     setPreviewUrl(url);
+    setScanPhase('scanning');
+
+    try {
+      const evidence = await inspectClientOriginal(next);
+      if (selectionSequence.current !== sequence) return;
+      setClientOriginalEvidence(evidence);
+      setScanPhase(evidence.scanStatus === 'complete' ? 'complete' : 'failed');
+    } catch (error) {
+      if (selectionSequence.current !== sequence) return;
+      setClientOriginalEvidence({
+        scanStatus: 'failed',
+        sha256: null,
+        byteLength: next.size,
+        mimeType: next.type,
+        exif: null,
+        errorClass: error instanceof Error ? error.name : 'UnknownExifScanError',
+      });
+      setScanPhase('failed');
+    }
   }
 
   function applyFailure(result: UploadResponse, fallback: string) {
@@ -201,6 +245,10 @@ export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) 
     }
     if (file.size > MAX_UPLOAD_BYTES) {
       setFieldErrors({ file: 'Image exceeds the 15 MB limit.' });
+      return;
+    }
+    if (!clientOriginalEvidence?.sha256) {
+      setFormError('Humn could not hash the untouched original. Select the image again before publishing.');
       return;
     }
 
@@ -257,6 +305,7 @@ export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) 
           title,
           description,
           category,
+          clientOriginalEvidence,
         }),
       });
       const result = await readUploadResponse(finalizeResponse);
@@ -279,6 +328,8 @@ export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) 
     }
   }
 
+  const originalMetadataNotice = metadataNotice(clientOriginalEvidence, scanPhase);
+
   return (
     <form className="form" onSubmit={submit} noValidate>
       <label className="field">
@@ -288,12 +339,13 @@ export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) 
           type="file"
           name="file"
           accept={ACCEPTED_IMAGE_TYPES.join(',')}
-          onChange={event => chooseFile(event.target.files?.[0] ?? null)}
+          onChange={event => void chooseFile(event.target.files?.[0] ?? null)}
           aria-invalid={Boolean(fieldErrors.file)}
-          aria-describedby="share-file-help share-file-error"
+          aria-describedby="share-file-help share-file-error share-file-metadata"
           required
         />
         <span id="share-file-help" className="field-help">One JPEG, PNG, or WebP image · maximum 15 MB.</span>
+        {originalMetadataNotice ? <span id="share-file-metadata" className="field-help">{originalMetadataNotice}</span> : null}
         {fieldErrors.file ? <span id="share-file-error" className="field-error">{fieldErrors.file}</span> : null}
       </label>
 
@@ -348,10 +400,10 @@ export function ShareWorkForm({ categories }: { categories: CategoryOption[] }) 
       </label>
 
       <p className="field-help">
-        The original uploads directly to private Supabase Storage. Humn then reads that stored original server-side to record its hash, EXIF and Content Credentials before publishing it as UNVERIFIED · SELF-DECLARED.
+        The original uploads directly to private Supabase Storage. Humn hashes and reads EXIF from the untouched browser file, verifies the same bytes after upload, and creates separate metadata-free display derivatives.
       </p>
       <button className="button primary" type="submit" disabled={busy}>
-        {phaseLabel(phase)}
+        {phaseLabel(phase, scanPhase)}
       </button>
       {formError ? <p className="notice" role="alert">{formError}</p> : null}
     </form>

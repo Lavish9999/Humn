@@ -4,18 +4,16 @@ import { createHash } from 'node:crypto';
 import * as exifr from 'exifr';
 import sharp from 'sharp';
 import { isAcceptedImageType, MAX_UPLOAD_BYTES, type AcceptedImageType } from './constants';
+import { normalizeExifEvidence, type NormalizedExifEvidence } from './exif-evidence';
 
 const SUPPORTED_SHARP_FORMATS = new Set(['jpeg', 'png', 'webp']);
 
-type ExifPayload = {
-  Make?: unknown;
-  Model?: unknown;
-  LensModel?: unknown;
-  ISO?: unknown;
-  ExposureTime?: unknown;
-  DateTimeOriginal?: unknown;
-  CreateDate?: unknown;
-};
+export class ExifParsingError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ExifParsingError';
+  }
+}
 
 export type ProcessedUpload = {
   original: Buffer;
@@ -33,6 +31,8 @@ export type ProcessedUpload = {
   iso: number | null;
   shutter: string | null;
   capturedAt: string | null;
+  exif: NormalizedExifEvidence;
+  exifSegmentBytes: number;
 };
 
 function greatestCommonDivisor(a: number, b: number): number {
@@ -49,45 +49,6 @@ function greatestCommonDivisor(a: number, b: number): number {
 function reducedRatio(width: number, height: number): string {
   const divisor = greatestCommonDivisor(width, height);
   return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
-}
-
-function textValue(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed || null;
-}
-
-function captureDevice(exif: ExifPayload | undefined): string | null {
-  if (!exif) return null;
-  const make = textValue(exif.Make);
-  const model = textValue(exif.Model);
-  if (!make) return model;
-  if (!model) return make;
-  if (model.toLowerCase().startsWith(make.toLowerCase())) return model;
-  return `${make} ${model}`;
-}
-
-function isoValue(value: unknown): number | null {
-  const numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
-  if (!Number.isFinite(numeric) || numeric <= 0) return null;
-  return Math.round(numeric);
-}
-
-function shutterValue(value: unknown): string | null {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
-  if (value >= 1) return `${Number(value.toFixed(3))} s`;
-  const denominator = Math.round(1 / value);
-  return denominator > 0 ? `1/${denominator} s` : null;
-}
-
-function timestampValue(value: unknown): string | null {
-  const date = value instanceof Date
-    ? value
-    : typeof value === 'string' || typeof value === 'number'
-      ? new Date(value)
-      : null;
-  if (!date || Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
 }
 
 function extensionFor(mimeType: AcceptedImageType): 'jpg' | 'png' | 'webp' {
@@ -111,6 +72,8 @@ export async function processUploadedImage(file: File): Promise<ProcessedUpload>
   if (file.size <= 0) throw new Error('The selected file is empty.');
   if (file.size > MAX_UPLOAD_BYTES) throw new Error('Image exceeds the 15 MB limit.');
 
+  // This buffer is the untouched object downloaded from work-originals. It is
+  // the sole input for the original hash, EXIF/C2PA analysis and derivatives.
   const original = Buffer.from(await file.arrayBuffer());
   const source = sharp(original, { limitInputPixels: 100_000_000, failOn: 'error' });
   const metadata = await source.metadata();
@@ -133,6 +96,19 @@ export async function processUploadedImage(file: File): Promise<ProcessedUpload>
   const width = swapsDimensions ? rawHeight : rawWidth;
   const height = swapsDimensions ? rawWidth : rawHeight;
 
+  let parsedExif: Record<string, unknown> | null;
+  try {
+    parsedExif = await exifr.parse(original, true) as Record<string, unknown> | null;
+  } catch (error) {
+    throw new ExifParsingError(
+      'The original image contains metadata that Humn could not parse safely.',
+      { cause: error },
+    );
+  }
+  const exif = normalizeExifEvidence(parsedExif);
+
+  // Display derivatives are intentionally re-encoded and contain no sensitive
+  // original metadata. They never replace the private original object.
   const display = await sharp(original, { limitInputPixels: 100_000_000, failOn: 'error' })
     .autoOrient()
     .resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true })
@@ -145,22 +121,6 @@ export async function processUploadedImage(file: File): Promise<ProcessedUpload>
     .webp({ quality: 80, effort: 4 })
     .toBuffer();
 
-  let exif: ExifPayload | undefined;
-  try {
-    exif = await exifr.parse(original, [
-      'Make',
-      'Model',
-      'LensModel',
-      'ISO',
-      'ExposureTime',
-      'DateTimeOriginal',
-      'CreateDate',
-    ]) as ExifPayload | undefined;
-  } catch {
-    exif = undefined;
-  }
-
-  const capturedAt = timestampValue(exif?.DateTimeOriginal) ?? timestampValue(exif?.CreateDate);
   const fileFormat = metadata.format === 'jpeg' ? 'JPEG' : metadata.format.toUpperCase();
 
   return {
@@ -174,10 +134,12 @@ export async function processUploadedImage(file: File): Promise<ProcessedUpload>
     aspectRatio: reducedRatio(width, height),
     fileFormat,
     sha256: createHash('sha256').update(original).digest('hex'),
-    captureDevice: captureDevice(exif),
-    lens: textValue(exif?.LensModel),
-    iso: isoValue(exif?.ISO),
-    shutter: shutterValue(exif?.ExposureTime),
-    capturedAt,
+    captureDevice: exif.captureDevice,
+    lens: exif.lens,
+    iso: exif.iso,
+    shutter: exif.shutter,
+    capturedAt: exif.capturedAt,
+    exif,
+    exifSegmentBytes: metadata.exif?.length ?? 0,
   };
 }
