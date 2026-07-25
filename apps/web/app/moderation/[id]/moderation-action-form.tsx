@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-type ModerationAction = 'approve' | 'reject' | 'remove';
+type ModerationAction = 'resubmit' | 'retry' | 'reject' | 'remove';
 
 type ModerationResponse = {
   ok?: boolean;
@@ -11,7 +11,7 @@ type ModerationResponse = {
   error?: string;
 };
 
-export function ModerationActionForm({ workId }: { workId: string }) {
+export function ModerationActionForm({ workId, isEscalated }: { workId: string; isEscalated: boolean }) {
   const router = useRouter();
   const [reason, setReason] = useState('');
   const [strikeReason, setStrikeReason] = useState('');
@@ -41,7 +41,11 @@ export function ModerationActionForm({ workId }: { workId: string }) {
         return;
       }
 
-      setMessage(`WORK ${action.toUpperCase()}D`);
+      setMessage(action === 'retry'
+        ? 'FRESH AUTOMATED PASS QUEUED'
+        : action === 'resubmit'
+          ? 'RETURNED TO CREATOR FOR RESUBMISSION'
+          : `WORK ${action.toUpperCase()}D`);
       setReason('');
       router.refresh();
     } catch {
@@ -86,8 +90,13 @@ export function ModerationActionForm({ workId }: { workId: string }) {
   return (
     <>
       <section className="provenance-block">
-        <div className="meta">Work review action</div>
+        <div className="meta">{isEscalated ? 'Escalated detector review' : 'Policy moderation action'}</div>
         <div className="form">
+          <p>
+            {isEscalated
+              ? 'A human reviewer cannot award VERIFIED. Return the Work for resubmission or queue a fresh automated pass after resolving the provider or evidence issue.'
+              : 'This queue item came from reports or policy moderation. Automated VERIFIED status is unavailable from this screen.'}
+          </p>
           <label className="field">
             <span className="field-label">Reason</span>
             <textarea
@@ -97,19 +106,29 @@ export function ModerationActionForm({ workId }: { workId: string }) {
               maxLength={1000}
               required
             />
-            <span className="field-help">A reason is recorded in the moderation audit log for every Work action.</span>
+            <span className="field-help">The reason is recorded in the immutable review audit trail.</span>
           </label>
 
           <div className="creator-proof-actions">
-            <button className="button primary" type="button" disabled={busy} onClick={() => submitAction('approve')}>
-              {busyAction === 'approve' ? 'APPROVING…' : 'APPROVE'}
-            </button>
-            <button className="button" type="button" disabled={busy} onClick={() => submitAction('reject')}>
-              {busyAction === 'reject' ? 'REJECTING…' : 'REJECT'}
-            </button>
-            <button className="button danger" type="button" disabled={busy} onClick={() => submitAction('remove')}>
-              {busyAction === 'remove' ? 'REMOVING…' : 'REMOVE'}
-            </button>
+            {isEscalated ? (
+              <>
+                <button className="button primary" type="button" disabled={busy} onClick={() => submitAction('retry')}>
+                  {busyAction === 'retry' ? 'QUEUING…' : 'RETRY DETECTORS'}
+                </button>
+                <button className="button secondary" type="button" disabled={busy} onClick={() => submitAction('resubmit')}>
+                  {busyAction === 'resubmit' ? 'RETURNING…' : 'REQUEST RESUBMISSION'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button className="button" type="button" disabled={busy} onClick={() => submitAction('reject')}>
+                  {busyAction === 'reject' ? 'RETURNING…' : 'RETURN TO DECLARED'}
+                </button>
+                <button className="button danger" type="button" disabled={busy} onClick={() => submitAction('remove')}>
+                  {busyAction === 'remove' ? 'REMOVING…' : 'REMOVE FOR POLICY VIOLATION'}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </section>
@@ -118,7 +137,7 @@ export function ModerationActionForm({ workId }: { workId: string }) {
         <div className="meta">Accountability action</div>
         <div className="form">
           <p>
-            Reports alone never issue a strike. Use this only after human review confirms a faked proof story, plagiarism, or posting another person’s work as one’s own.
+            Detector scores alone never issue a strike. Use this only after human review confirms a faked proof story, plagiarism, or posting another person’s work as one’s own.
           </p>
           <label className="field">
             <span className="field-label">Upheld violation reason</span>
