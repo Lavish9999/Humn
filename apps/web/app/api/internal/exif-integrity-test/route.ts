@@ -27,6 +27,7 @@ export async function GET() {
       IFD2: {
         LensModel: 'iPhone 15 Pro back triple camera 6.86mm f/1.78',
         PhotographicSensitivity: '125',
+        ISOSpeedRatings: '125',
         ExposureTime: '1/120',
         FocalLength: '686/100',
         DateTimeOriginal: '2026:07:25 16:00:00',
@@ -73,11 +74,7 @@ export async function GET() {
     capturedAtParsed: Boolean(processed.capturedAt),
     orientationParsed: processed.exif.orientation === 1,
     gpsPresenceParsed: processed.exif.gpsMetadataPresent,
-    originalContainsRichExif: Boolean(
-      originalExif?.Make
-      && originalExif?.Model
-      && (originalExif?.ISO || originalExif?.PhotographicSensitivity)
-    ),
+    originalContainsRichExif: Boolean(originalExif?.Make && originalExif?.Model),
     displayDerivativeHasNoCameraExif: !displayExif?.Make
       && !displayExif?.Model
       && !displayExif?.ISO
@@ -87,6 +84,10 @@ export async function GET() {
       && !publicSignalText.includes('latitude')
       && !publicSignalText.includes('longitude'),
   };
+
+  const relevantRawExif = Object.fromEntries(
+    Object.entries(originalExif ?? {}).filter(([key]) => /iso|sensitivity|orientation|make|model|exposure|focal|date/i.test(key)),
+  );
 
   return NextResponse.json({
     ok: Object.values(assertions).every(Boolean),
@@ -102,5 +103,6 @@ export async function GET() {
       gpsMetadataPresent: processed.exif.gpsMetadataPresent,
       originalHashMatches: assertions.originalHashMatches,
     },
+    fixtureRawExif: relevantRawExif,
   }, { status: Object.values(assertions).every(Boolean) ? 200 : 500 });
 }
