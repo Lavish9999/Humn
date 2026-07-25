@@ -44,7 +44,10 @@ select is((select count(*)::integer from public.works where status='verified' an
 select is((select count(*)::integer from public.works where ai_declared and status='verified'), 0, 'C2PA AI-declared Works never occupy the verified tier');
 select is((select count(*)::integer from public.works w where (select count(*) from public.provenance_signals ps where ps.work_id=w.id) <> 4), 0, 'every existing Work has four provenance signal rows after backfill');
 select is((select count(*)::integer from public.provenance_signals where signal_name='c2pa' and value->>'state' in ('none','legacy_not_evaluated','unavailable','parse_error') and weight <> 0), 0, 'missing or unavailable C2PA is always neutral');
-select like(obj_description('public.provenance_signals'::regclass), '%Missing C2PA or EXIF is neutral%', 'neutral-evidence invariant is documented in the schema');
+select ok(
+  position('Missing C2PA or EXIF is neutral' in obj_description('public.provenance_signals'::regclass)) > 0,
+  'neutral-evidence invariant is documented in the schema'
+);
 
 select * from finish();
 rollback;
