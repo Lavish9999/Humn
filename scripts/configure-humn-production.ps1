@@ -123,12 +123,16 @@ function Find-ApiKey {
       $labelParts = @(
         (Get-ObjectValue -Object $item -Names @('name')),
         (Get-ObjectValue -Object $item -Names @('type')),
-        (Get-ObjectValue -Object $item -Names @('role')),
-        (Get-ObjectValue -Object $item -Names @('description'))
+        (Get-ObjectValue -Object $item -Names @('role'))
       ) | Where-Object { $_ }
 
-      $label = ($labelParts -join ' ').ToLowerInvariant()
-      if ($label -notlike "*$preferredLabel*") {
+      $normalizedLabels = @($labelParts | ForEach-Object { $_.ToLowerInvariant().Replace('-', '_') })
+      $normalizedPreferred = $preferredLabel.ToLowerInvariant().Replace('-', '_')
+      $matches = $normalizedLabels | Where-Object {
+        $_ -eq $normalizedPreferred -or $_ -like "*$normalizedPreferred*"
+      }
+
+      if (-not $matches) {
         continue
       }
 
@@ -144,7 +148,15 @@ function Find-ApiKey {
 
 function New-RecoverySecret {
   $bytes = New-Object byte[] 48
-  [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+  $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+
+  try {
+    $rng.GetBytes($bytes)
+  }
+  finally {
+    $rng.Dispose()
+  }
+
   return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 }
 
@@ -172,10 +184,13 @@ function Set-VercelEnvironmentVariable {
       $arguments += '--sensitive'
     }
 
-    Invoke-NpxCommand \
-      -Arguments $arguments \
-      -StandardInputPath $inputPath \
-      -FailureMessage "Could not set $Name for the $Environment environment." | Out-Null
+    $invokeParameters = @{
+      Arguments = $arguments
+      StandardInputPath = $inputPath
+      FailureMessage = "Could not set $Name for the $Environment environment."
+    }
+
+    Invoke-NpxCommand @invokeParameters | Out-Null
   }
   finally {
     Remove-Item -LiteralPath $inputPath -Force -ErrorAction SilentlyContinue
@@ -196,10 +211,12 @@ foreach ($requiredPath in $requiredPaths) {
 }
 
 Write-Step 'Checking authenticated Supabase access'
-$projectsJson = Invoke-NpxCommand \
-  -Arguments @('--yes', 'supabase@latest', 'projects', 'list', '--output', 'json') \
-  -CaptureOutput \
-  -FailureMessage 'Supabase CLI is not authenticated. Run: npx supabase login'
+$projectListParameters = @{
+  Arguments = @('--yes', 'supabase@latest', 'projects', 'list', '--output', 'json')
+  CaptureOutput = $true
+  FailureMessage = 'Supabase CLI is not authenticated. Run: npx supabase login'
+}
+$projectsJson = Invoke-NpxCommand @projectListParameters
 $projects = Convert-CommandJsonToItems -Json $projectsJson
 $projectMatch = $projects | Where-Object {
   (Get-ObjectValue -Object $_ -Names @('id', 'ref', 'project_ref')) -eq $SupabaseProjectRef
@@ -210,10 +227,12 @@ if (-not $projectMatch) {
 }
 
 Write-Step 'Retrieving Supabase API keys without printing them'
-$apiKeysJson = Invoke-NpxCommand \
-  -Arguments @('--yes', 'supabase@latest', 'projects', 'api-keys', '--project-ref', $SupabaseProjectRef, '--output', 'json') \
-  -CaptureOutput \
-  -FailureMessage 'Supabase API keys could not be retrieved.'
+$apiKeyParameters = @{
+  Arguments = @('--yes', 'supabase@latest', 'projects', 'api-keys', '--project-ref', $SupabaseProjectRef, '--output', 'json')
+  CaptureOutput = $true
+  FailureMessage = 'Supabase API keys could not be retrieved.'
+}
+$apiKeysJson = Invoke-NpxCommand @apiKeyParameters
 $apiKeys = Convert-CommandJsonToItems -Json $apiKeysJson
 $publishableKey = Find-ApiKey -Items $apiKeys -PreferredLabels @('publishable', 'anon')
 $serverKey = Find-ApiKey -Items $apiKeys -PreferredLabels @('service_role', 'service role', 'secret')
@@ -230,14 +249,18 @@ $recoverySecret = New-RecoverySecret
 $supabaseUrl = "https://$SupabaseProjectRef.supabase.co"
 
 Write-Step 'Checking authenticated Vercel access'
-Invoke-NpxCommand \
-  -Arguments @('--yes', 'vercel@latest', 'whoami') \
-  -FailureMessage 'Vercel CLI is not authenticated. Run: npx vercel login' | Out-Null
+$vercelWhoAmIParameters = @{
+  Arguments = @('--yes', 'vercel@latest', 'whoami')
+  FailureMessage = 'Vercel CLI is not authenticated. Run: npx vercel login'
+}
+Invoke-NpxCommand @vercelWhoAmIParameters | Out-Null
 
 Write-Step 'Linking this repository to the Humn Vercel project'
-Invoke-NpxCommand \
-  -Arguments @('--yes', 'vercel@latest', 'link', '--yes', '--project', $VercelProject, '--scope', $VercelScope) \
-  -FailureMessage 'Could not link this repository to the humn-web Vercel project.' | Out-Null
+$vercelLinkParameters = @{
+  Arguments = @('--yes', 'vercel@latest', 'link', '--yes', '--project', $VercelProject, '--scope', $VercelScope)
+  FailureMessage = 'Could not link this repository to the humn-web Vercel project.'
+}
+Invoke-NpxCommand @vercelLinkParameters | Out-Null
 
 $sharedPublicVariables = [ordered]@{
   NEXT_PUBLIC_SUPABASE_URL = $supabaseUrl
@@ -265,9 +288,11 @@ Write-Step 'Writing the canonical production URL'
 Set-VercelEnvironmentVariable -Name 'NEXT_PUBLIC_SITE_URL' -Value $ProductionUrl -Environment 'production'
 
 Write-Step 'Deploying Humn to production with the repaired environment'
-Invoke-NpxCommand \
-  -Arguments @('--yes', 'vercel@latest', '--prod', '--yes', '--scope', $VercelScope) \
-  -FailureMessage 'Production deployment failed.' | Out-Null
+$deployParameters = @{
+  Arguments = @('--yes', 'vercel@latest', '--prod', '--yes', '--scope', $VercelScope)
+  FailureMessage = 'Production deployment failed.'
+}
+Invoke-NpxCommand @deployParameters | Out-Null
 
 Write-Step 'Checking the live Discover page'
 $discoverUrl = "$($ProductionUrl.TrimEnd('/'))/discover"
