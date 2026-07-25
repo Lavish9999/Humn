@@ -26,10 +26,16 @@ select is(
 );
 
 select ok(
-  position('raw_user_meta_data->>''handle''' in pg_get_functiondef(
+  position('new.raw_user_meta_data' in pg_get_functiondef(
+    'public.sync_auth_user_to_humn_users()'::regprocedure
+  )) > 0
+  and position('raw_requested_handle' in pg_get_functiondef(
+    'public.sync_auth_user_to_humn_users()'::regprocedure
+  )) > 0
+  and position('''handle''' in pg_get_functiondef(
     'public.sync_auth_user_to_humn_users()'::regprocedure
   )) > 0,
-  'Profile trigger reads the explicit handle metadata key'
+  'Profile trigger reads and normalizes the explicit handle metadata key'
 );
 
 select ok(
