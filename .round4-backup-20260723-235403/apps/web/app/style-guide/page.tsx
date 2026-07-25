@@ -1,0 +1,17 @@
+import { ProvenanceBadge } from '../../components/provenance-badge';
+import { WorkCard } from '../../components/work-card';
+import { devCatalogue } from '../../lib/dev-catalogue';
+
+export default function StyleGuidePage() {
+  return <main className="shell section">
+    <div className="section-head"><div><div className="eyebrow">System / 001</div><h2>Humn editorial system.</h2><p className="section-intro">A compact reference for palette, typography, rules, controls, and card treatments.</p></div></div>
+    <div className="style-guide-grid">
+      <section className="style-guide-section"><div className="meta">Palette</div><div className="swatches"><div className="swatch paper"><span className="meta">Paper</span><span>#F7F4EC</span></div><div className="swatch deep"><span className="meta">Paper deep</span><span>#EFEAE0</span></div><div className="swatch ink"><span className="meta">Ink</span><span>#14120E</span></div><div className="swatch accent"><span className="meta">Accent</span><span>#E0492C</span></div><div className="swatch alt"><span className="meta">Accent alt</span><span>#1C3F6E</span></div></div></section>
+      <section className="style-guide-section"><div className="meta">Type scale</div><div className="type-sample"><h1>Display 64–88</h1></div><div className="type-sample"><h2>Section 40–64</h2></div><div className="type-sample"><h3>Heading 28</h3></div><div className="type-sample"><p>Body 16 / 1.55 — edited, legible, and compact enough for a discovery product.</p></div><div className="type-sample"><span className="meta">Meta label / 12 / uppercase</span></div></section>
+      <section className="style-guide-section"><div className="meta">Controls</div><div className="actions"><button className="button primary">Primary action</button><button className="button">Secondary action</button><button className="button alt">Alternate</button><button className="button danger">Destructive</button></div><div className="control-specimens"><button role="switch" aria-checked={false} className="track" data-on={false} aria-label="Example switch off"><span className="knob" /></button><button role="switch" aria-checked={true} className="track" data-on={true} aria-label="Example switch on"><span className="knob" /></button><button className="button danger-solid">Final delete</button></div></section>
+      <section className="style-guide-section"><div className="meta">Provenance badges</div><div className="badge-specimens"><ProvenanceBadge status="process_verified" proofCount={4} /><ProvenanceBadge status="under_review" /><ProvenanceBadge status="not_yet_verified" /></div></section>
+      <section className="style-guide-section"><div className="meta">Masonry card</div><div className="style-card-preview"><WorkCard work={devCatalogue[0]!} /></div></section>
+      <section className="style-guide-section"><div className="meta">Card variants</div><div className="collection-grid"><article className="collection-card"><div className="collection-card-copy"><h3>Printed matter</h3><span className="meta">12 WORKS · UPDATED 3D AGO</span></div></article><article className="collection-card danger-zone"><div className="collection-card-copy"><div className="meta">Danger zone</div><h3>Destructive panel</h3><p className="muted">Danger uses its own ink and never competes with the primary action.</p><button className="button danger">Delete</button></div></article></div></section>
+    </div>
+  </main>;
+}

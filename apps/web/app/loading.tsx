@@ -1,0 +1,1 @@
+import { FeedSkeleton } from '../components/feed-skeleton'; export default function Loading(){return <main className="home-page"><section className="shell hero page-first-section"><div className="media-skeleton" style={{height:280}} /></section><FeedSkeleton count={8} /></main>;}

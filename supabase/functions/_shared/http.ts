@@ -1,0 +1,4 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+export const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json'}});
+export function serviceClient(){const url=Deno.env.get('SUPABASE_URL');const key=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');if(!url||!key)throw new Error('Missing Supabase service configuration.');return createClient(url,key,{auth:{persistSession:false}})}
+export async function authenticatedClient(req:Request){const url=Deno.env.get('SUPABASE_URL')!;const key=Deno.env.get('SUPABASE_ANON_KEY')!;const auth=req.headers.get('authorization')??'';const client=createClient(url,key,{global:{headers:{Authorization:auth}},auth:{persistSession:false}});const {data:{user},error}=await client.auth.getUser();if(error||!user)throw new Error('UNAUTHORIZED');return {client,user};}

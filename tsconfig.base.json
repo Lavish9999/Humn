@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "Bundler",
+    "module": "ESNext",
+    "jsx": "preserve",
+    "allowJs": false,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@human/config": ["packages/config/src/index.ts"],
+      "@human/design-tokens": ["packages/design-tokens/src/index.ts"],
+      "@human/types": ["packages/types/src/index.ts"],
+      "@human/validation": ["packages/validation/src/index.ts"],
+      "@human/database/*": ["packages/database/src/*"]
+    }
+  }
+}

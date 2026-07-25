@@ -1,0 +1,17 @@
+{
+  "name": "@human/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "^2.2.0",
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.55.0",
+    "react-native-url-polyfill": "^2.0.0"
+  },
+  "exports": {
+    "./browser": "./src/browser.ts",
+    "./server": "./src/server.ts",
+    "./mobile": "./src/mobile.ts"
+  }
+}

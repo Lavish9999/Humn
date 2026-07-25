@@ -1,0 +1,1 @@
+export default function Loading(){return <main className="section work-page"><article className="work-layout page-first-section"><div className="work-primary"><div className="work-visual media-skeleton" style={{minHeight:520}} /></div><aside className="provenance-panel"><div className="media-skeleton" style={{height:480}} /></aside></article></main>;}

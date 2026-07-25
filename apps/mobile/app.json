@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Humn",
+    "slug": "human",
+    "scheme": "human",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.human.platform",
+      "usesAppleSignIn": true
+    },
+    "android": {
+      "package": "com.human.platform",
+      "adaptiveIcon": {
+        "backgroundColor": "#F5F2EA"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-apple-authentication",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "name": "human-platform",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev:web": "npm run dev -w @human/web",
+    "dev:admin": "npm run dev -w @human/admin",
+    "dev:mobile": "npm run start -w @human/mobile",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "check": "npm run lint && npm run typecheck && npm run test",
+    "db:start": "supabase start",
+    "db:reset": "supabase db reset",
+    "db:test": "supabase test db",
+    "seed:dev": "supabase db reset",
+    "seed:cleanup": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f supabase/seed/cleanup_test_content.sql",
+    "build:web": "npm run build -w @human/web",
+    "audit:deploy": "node scripts/audit-deployment-env.mjs",
+    "check:deploy": "npm run audit:deploy && npm run typecheck -w @human/web && npm run build:web"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.5.0",
+    "supabase": "^2.34.3",
+    "typescript": "^5.9.0",
+    "@eslint/js": "^9.0.0",
+    "typescript-eslint": "^8.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "sharp@0.34.5": true,
+    "@contentauth/c2pa-node@0.6.4": true,
+    "@contentauth/c2pa-node": true,
+    "sharp": true
+  }
+}

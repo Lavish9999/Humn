@@ -1,0 +1,4 @@
+'use client';
+import { useState } from 'react';
+import { createBrowserSupabaseClient } from '@human/database/browser';
+export default function UpdatePasswordPage(){const[password,setPassword]=useState(''),[message,setMessage]=useState('');async function update(event:React.FormEvent){event.preventDefault();const s=createBrowserSupabaseClient();const{error}=await s.auth.updateUser({password});setMessage(error?.message??'Password updated. You can now sign in.')}return <main className="shell"><section className="form-card"><h2>Choose a new password</h2><form className="form" onSubmit={update}><label className="field">New password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} minLength={10} required /></label><button className="button">Update password</button></form>{message&&<p role="status">{message}</p>}</section></main>}
