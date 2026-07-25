@@ -1,44 +1,51 @@
 import { NextResponse } from 'next/server';
 import { getPublicSupabaseConfig } from '@human/database/config';
 
-const candidates = [
-  { label: 'human-cli', ref: 'bondfumehickzmmbfwoe' },
-  { label: 'humn-production', ref: 'tysaxhgyvpvcbpoaynog' },
-] as const;
+const projectRef = 'bondfumehickzmmbfwoe';
+
+async function inspect(path: string, init?: RequestInit) {
+  const { publishableKey } = getPublicSupabaseConfig();
+  const response = await fetch(`https://${projectRef}.supabase.co${path}`, {
+    ...init,
+    headers: {
+      apikey: publishableKey,
+      Authorization: `Bearer ${publishableKey}`,
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+    cache: 'no-store',
+  });
+  const body = await response.text();
+
+  return {
+    path,
+    status: response.status,
+    contentType: response.headers.get('content-type'),
+    bodyPreview: body.replace(/\s+/g, ' ').slice(0, 240),
+  };
+}
 
 export async function GET() {
-  const { publishableKey } = getPublicSupabaseConfig();
+  const checks = await Promise.all([
+    inspect('/auth/v1/settings'),
+    inspect('/rest/v1/'),
+    inspect('/rest/v1/rpc/get_discover_filter_capabilities', {
+      method: 'POST',
+      body: '{}',
+    }),
+    inspect('/rest/v1/rpc/get_filtered_work_feed', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_categories: null,
+        p_tier_mode: 'all',
+        p_origins: null,
+        p_cursor_rank: null,
+        p_cursor_published_at: null,
+        p_cursor_id: null,
+        p_limit: 1,
+      }),
+    }),
+  ]);
 
-  const results = await Promise.all(candidates.map(async ({ label, ref }) => {
-    const url = `https://${ref}.supabase.co/auth/v1/settings`;
-
-    try {
-      const response = await fetch(url, {
-        headers: {
-          apikey: publishableKey,
-          Authorization: `Bearer ${publishableKey}`,
-        },
-        cache: 'no-store',
-      });
-
-      return {
-        label,
-        ref,
-        status: response.status,
-        contentType: response.headers.get('content-type'),
-        matched: response.ok,
-      };
-    } catch (error) {
-      return {
-        label,
-        ref,
-        status: null,
-        contentType: null,
-        matched: false,
-        error: error instanceof Error ? error.message : 'Unknown fetch failure',
-      };
-    }
-  }));
-
-  return NextResponse.json({ results });
+  return NextResponse.json({ projectRef, checks });
 }
