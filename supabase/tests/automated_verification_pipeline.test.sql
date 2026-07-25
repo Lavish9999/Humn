@@ -1,5 +1,5 @@
 begin;
-select plan(37);
+select plan(39);
 
 select has_table('public', 'verification_pipeline_config', 'tunable verification config exists');
 select has_table('public', 'verification_pipeline_runs', 'verification run ledger exists');
@@ -16,6 +16,14 @@ select is((select ai_clear_threshold from public.verification_pipeline_config wh
 select is((select min_confidence from public.verification_pipeline_config where singleton), 0.8000::numeric, 'initial confidence threshold is explicit');
 select is((select recapture_escalate_threshold from public.verification_pipeline_config where singleton), 0.5000::numeric, 'recapture escalation threshold is explicit');
 select is((select local_screen_escalate_threshold from public.verification_pipeline_config where singleton), 0.6000::numeric, 'local screen heuristic threshold is explicit');
+select ok(
+  (select lower(primary_provider) <> lower(secondary_provider) from public.verification_pipeline_config where singleton),
+  'primary and secondary providers are independently configured'
+);
+select has_index(
+  'public', 'verification_detector_results', 'verification_detector_one_required_role_idx',
+  'a run can retain only one primary and one secondary result'
+);
 
 select has_function('public', 'claim_verification_run', array['uuid'], 'service worker claim RPC exists');
 select has_function('public', 'complete_verification_run', array['uuid','text','text','text','text','jsonb','jsonb','jsonb'], 'automated completion RPC exists');
