@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "printf '\nHUMN_MIGRATIONS_BEGIN\n' && find ../../supabase/migrations -maxdepth 1 -type f -printf '%f\n' | sort && printf 'HUMN_MIGRATIONS_END\n'",
+    "prebuild": "printf '\nHUMN_DB_FILES_BEGIN\n' && find ../../supabase -maxdepth 3 -type f -printf '%P\n' | sort && printf 'HUMN_DB_FILES_END\n'",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
