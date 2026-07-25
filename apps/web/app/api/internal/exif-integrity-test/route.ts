@@ -23,11 +23,10 @@ export async function GET() {
       IFD0: {
         Make: 'Apple',
         Model: 'iPhone 15 Pro',
-        Orientation: '1',
       },
       IFD2: {
         LensModel: 'iPhone 15 Pro back triple camera 6.86mm f/1.78',
-        ISO: '125',
+        PhotographicSensitivity: '125',
         ExposureTime: '1/120',
         FocalLength: '686/100',
         DateTimeOriginal: '2026:07:25 16:00:00',
@@ -39,6 +38,7 @@ export async function GET() {
         GPSLongitude: '81/1 44/1 0/1',
       },
     })
+    .withMetadata({ orientation: 1 })
     .toBuffer();
 
   const originalBytes = Uint8Array.from(original);
@@ -73,8 +73,15 @@ export async function GET() {
     capturedAtParsed: Boolean(processed.capturedAt),
     orientationParsed: processed.exif.orientation === 1,
     gpsPresenceParsed: processed.exif.gpsMetadataPresent,
-    originalContainsRichExif: Boolean(originalExif?.Make && originalExif?.Model && originalExif?.ISO),
-    displayDerivativeHasNoCameraExif: !displayExif?.Make && !displayExif?.Model && !displayExif?.ISO,
+    originalContainsRichExif: Boolean(
+      originalExif?.Make
+      && originalExif?.Model
+      && (originalExif?.ISO || originalExif?.PhotographicSensitivity)
+    ),
+    displayDerivativeHasNoCameraExif: !displayExif?.Make
+      && !displayExif?.Model
+      && !displayExif?.ISO
+      && !displayExif?.PhotographicSensitivity,
     publicSignalHasNoCoordinates: !publicSignalText.includes('28/1')
       && !publicSignalText.includes('81/1')
       && !publicSignalText.includes('latitude')
