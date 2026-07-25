@@ -49,9 +49,9 @@ export type FileEvidenceRecord = {
   lens: string | null;
   iso: number | null;
   shutter: string | null;
-  focalLengthMm: number | null;
-  orientation: number | null;
-  gpsMetadataPresent: boolean;
+  focalLengthMm?: number | null;
+  orientation?: number | null;
+  gpsMetadataPresent?: boolean;
   dimensions: string | null;
   format: string | null;
   originalHash: string | null;
