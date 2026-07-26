@@ -1,6 +1,6 @@
 export type DetectorRole = 'primary' | 'secondary' | 'optional' | 'local';
 export type DetectorStatus = 'ok' | 'unavailable' | 'error' | 'timeout';
-export type VerificationDecisionName = 'verified' | 'rejected' | 'escalate';
+export type VerificationDecisionName = 'verified' | 'rejected' | 'self_declared';
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -46,6 +46,8 @@ export type VerificationThresholds = {
   aiClearThreshold: number;
   minConfidence: number;
   deepfakeRejectThreshold: number;
+  // Dormant optional threshold retained only so a future provisioned recapture
+  // adapter can be re-enabled without becoming a required clearance input.
   recaptureEscalateThreshold: number;
   localScreenEscalateThreshold: number;
   optionalRegionEscalateThreshold: number;
