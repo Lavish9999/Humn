@@ -45,7 +45,7 @@ export function ProvenanceBadge({
   const explanation = provenance.variant === 'verified'
     ? AUTOMATED_VERIFIED_EXPLANATION
     : provenance.variant === 'awaiting'
-      ? 'Automated detectors are running or the result has been escalated because they could not safely agree.'
+      ? 'Humn’s automated detector pipeline is currently processing this Work.'
       : 'The creator supplied this Work, but Humn has not cleared it through the automated detector pipeline.';
 
   return (
