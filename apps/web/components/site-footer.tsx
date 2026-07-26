@@ -9,7 +9,7 @@ const columns = [
 ] as const;
 
 export function SiteFooter() {
-  return <footer className="site-footer">
+  return <footer className="site-footer" aria-label="Site footer">
     <div className="shell footer-grid">
       {columns.map(([heading, links]) => <section className="footer-column" key={heading}>
         <div className="meta">{heading}</div>
