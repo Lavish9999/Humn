@@ -25,7 +25,7 @@ AWAITING AUTOMATED REVIEW (`awaiting`)
   SELF-DECLARED  — disagreement, incomplete/low-confidence scores, provider failure, duplicate, local screen or partial-AI suspicion
 ```
 
-A completed run never leaves a Work in `awaiting`. AWAITING exists only while the durable queue is queued or running. Pipeline exceptions and stale-attempt exhaustion also return the Work to SELF-DECLARED. Human reviewers cannot award the automated VERIFIED badge.
+A completed run never leaves a Work in `awaiting`. AWAITING exists only while the durable queue is queued or running. Pipeline exceptions and the first stale-run recovery pass also return the Work to SELF-DECLARED. Human reviewers cannot award the automated VERIFIED badge.
 
 ## Trust boundary
 
@@ -55,9 +55,9 @@ RLS plus revoked table/function privileges prevent browser clients from writing 
 
 1. The request RPC atomically changes `declared → awaiting`, creates a review request, and inserts a queued pipeline run.
 2. A Next.js server callback immediately tries to process that Work.
-3. A bearer-protected recovery worker processes queued runs and recovers stale attempts.
+3. A bearer-protected daily recovery worker processes queued runs. A running attempt older than three minutes becomes terminal SELF-DECLARED on its first recovery pass instead of being requeued across several days.
 4. The worker downloads the untouched original from private `work-originals` storage.
-5. It reads current threshold/provider configuration from `verification_pipeline_config`.
+5. It reads current threshold/provider configuration from `verification_pipeline_config`, with the trusted claim snapshot as a fallback if a second read fails.
 6. It loads existing provenance inputs: C2PA, exact duplicate hash, EXIF summary and origin input.
 7. It runs the local screen/rephotograph heuristic and configured provider adapters independently.
 8. Core decision logic chooses VERIFIED, REJECTED or SELF-DECLARED.
@@ -94,7 +94,7 @@ These are conservative **starting configuration values**, not measured claims:
 | Optional localized-AI | 0.50 | Region suspicion returns SELF-DECLARED |
 | Provider timeout | 15 seconds | Timeout returns SELF-DECLARED |
 | User rate limit | 5 requests/hour | Stops detector API abuse |
-| Maximum attempts | 3 | Stale exhaustion returns SELF-DECLARED |
+| Stale window | 3 minutes | First stale recovery returns SELF-DECLARED |
 
 Update the singleton config row only after examining a held-out Humn benchmark report.
 
@@ -167,7 +167,7 @@ Precision, recall and false-positive rate remain **UNMEASURED** until that bench
 ## Deployment order
 
 1. Validate migrations and pgTAP locally/CI.
-2. Apply migrations through `202607250026` to Supabase.
+2. Apply migrations through `202607250027` to Supabase.
 3. Provision required Vercel secrets; keep Recapture disabled.
 4. Deploy the Next.js application.
 5. Run the labelled benchmark and tune database thresholds only from representative data.
