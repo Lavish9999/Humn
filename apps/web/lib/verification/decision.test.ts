@@ -57,10 +57,12 @@ function detector(role: 'primary' | 'secondary', aiScore: number): DetectorResul
     aiScore,
     authenticScore: 1 - aiScore,
     confidence: Math.abs(aiScore - 0.5) * 2,
-    recaptureScore: 0.05,
+    recaptureScore: role === 'primary' ? 0.05 : null,
     deepfakeScore: 0.02,
     partialAiScore: null,
-    contentFlags: {},
+    contentFlags: role === 'primary'
+      ? { recapture_status: 'ok' }
+      : {},
     rawResponse: {},
     errorCode: null,
     latencyMs: 10,
@@ -105,6 +107,24 @@ test('AI image photographed from a screen escalates instead of auto-clearing', (
   });
   assert.equal(result.decision, 'escalate');
   assert.equal(result.reasonCode, 'SCREEN_REPHOTOGRAPH_SUSPECTED');
+});
+
+test('missing primary recapture signal escalates instead of silently clearing', () => {
+  const primary = detector('primary', 0.04);
+  primary.recaptureScore = null;
+  primary.contentFlags = {
+    recapture_enabled: false,
+    recapture_status: 'disabled',
+  };
+  const result = evaluateVerificationDecision({
+    results: [primary, detector('secondary', 0.03)],
+    provenance,
+    screen: cleanScreen,
+    thresholds,
+  });
+  assert.equal(result.decision, 'escalate');
+  assert.equal(result.reasonCode, 'RECAPTURE_SIGNAL_UNAVAILABLE');
+  assert.match(result.uncertaintySignals.join(' '), /recapture signal unavailable/);
 });
 
 test('required provider timeout escalates and never defaults to VERIFIED', () => {
