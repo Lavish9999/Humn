@@ -233,9 +233,9 @@ async function executeClaimedRun(
     if (thresholds) {
       const failureResult = pipelineErrorResult(error);
       const safeDecision = {
-        decision: 'escalate' as const,
+        decision: 'self_declared' as const,
         reasonCode: 'PIPELINE_EXECUTION_ERROR',
-        reason: 'Automated review could not complete safely. The Work was escalated and was not defaulted to VERIFIED.',
+        reason: 'Automated review could not complete safely. The Work remains SELF-DECLARED and was not defaulted to VERIFIED.',
         requiredProviderAgreement: false,
         strongSignals: [],
         uncertaintySignals: [error instanceof Error ? error.message : String(error)],
@@ -243,7 +243,7 @@ async function executeClaimedRun(
       try {
         await completeRun(admin, claim, thresholds, [failureResult], screen, safeDecision);
       } catch (completionError) {
-        console.error('[automated-verification] Safe escalation could not be persisted.', {
+        console.error('[automated-verification] Safe SELF-DECLARED fallback could not be persisted.', {
           runId: claim.run_id,
           workId: claim.work_id,
           errorClass: completionError instanceof Error ? completionError.name : 'UnknownError',
@@ -256,7 +256,7 @@ async function executeClaimedRun(
       processed: true,
       workId: claim.work_id,
       runId: claim.run_id,
-      decision: 'escalate',
+      decision: 'self_declared',
     };
   }
 }
