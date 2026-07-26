@@ -1,1 +1,0 @@
-Trigger PR #4 Preview after SUPABASE_ACCESS_TOKEN was added to Vercel.
