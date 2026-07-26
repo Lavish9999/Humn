@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/internal/verification/run?limit=10",
-      "schedule": "0 4 * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }
