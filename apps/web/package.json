@@ -8,7 +8,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "rm -rf .verification-test-dist && tsc -p tsconfig.verification-tests.json && node --test .verification-test-dist/decision.test.js"
+    "test": "rm -rf .verification-test-dist && tsc -p tsconfig.verification-tests.json && node --test .verification-test-dist/*.test.js .verification-test-dist/providers/*.test.js"
   },
   "dependencies": {
     "@human/config": "*",
