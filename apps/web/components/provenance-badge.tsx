@@ -1,6 +1,12 @@
 import type { ProvenanceVariant } from '../lib/data/types';
 
-export const AUTOMATED_VERIFIED_EXPLANATION = "Cleared by Humn's automated origin detectors.";
+export const AUTOMATED_VERIFIED_EXPLANATION = "Two independent automated origin checks cleared this Work under Humn's current thresholds.";
+
+const PUBLIC_PROVENANCE_LABELS: Record<ProvenanceVariant, string> = {
+  verified: 'ORIGIN CHECK PASSED',
+  awaiting: 'ORIGIN CHECK IN PROGRESS',
+  unverified: 'CREATOR DECLARED',
+};
 
 export function deriveProvenance({
   proofCount,
@@ -17,36 +23,36 @@ export function deriveProvenance({
   if (reviewComplete && normalizedProofCount >= 1) {
     return {
       variant: 'verified',
-      label: 'VERIFIED · AUTOMATED CLEAR',
+      label: PUBLIC_PROVENANCE_LABELS.verified,
     };
   }
 
   if (normalizedProofCount >= 1) {
-    return { variant: 'awaiting', label: 'AWAITING AUTOMATED REVIEW' };
+    return { variant: 'awaiting', label: PUBLIC_PROVENANCE_LABELS.awaiting };
   }
 
-  return { variant: 'unverified', label: 'UNVERIFIED · SELF-DECLARED' };
+  return { variant: 'unverified', label: PUBLIC_PROVENANCE_LABELS.unverified };
 }
 
-export function ProvenanceBadge({
-  proofCount = 0,
-  reviewComplete = false,
-  variant,
-  label,
-}: {
+export function ProvenanceBadge(props: {
   proofCount?: number;
   reviewComplete?: boolean;
   variant?: ProvenanceVariant;
   label?: string;
 }) {
-  const provenance = variant && label
-    ? { variant, label }
+  const {
+    proofCount = 0,
+    reviewComplete = false,
+    variant,
+  } = props;
+  const provenance = variant
+    ? { variant, label: PUBLIC_PROVENANCE_LABELS[variant] }
     : deriveProvenance({ proofCount, reviewComplete });
   const explanation = provenance.variant === 'verified'
-    ? AUTOMATED_VERIFIED_EXPLANATION
+    ? `${AUTOMATED_VERIFIED_EXPLANATION} This is not proof of human authorship.`
     : provenance.variant === 'awaiting'
-      ? 'Humn’s automated detector pipeline is currently processing this Work.'
-      : 'The creator supplied this Work, but Humn has not cleared it through the automated detector pipeline.';
+      ? 'Humn’s automated origin checks are currently processing this Work.'
+      : 'The creator supplied this Work, but Humn has not cleared it through the automated origin checks.';
 
   return (
     <span
