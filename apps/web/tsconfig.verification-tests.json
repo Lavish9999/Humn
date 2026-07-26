@@ -13,5 +13,8 @@
     "isolatedModules": false,
     "plugins": []
   },
-  "files": ["lib/verification/decision.test.ts"]
+  "files": [
+    "lib/verification/decision.test.ts",
+    "lib/verification/providers/common.test.ts"
+  ]
 }
