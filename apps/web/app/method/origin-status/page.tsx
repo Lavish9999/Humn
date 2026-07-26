@@ -15,19 +15,19 @@ const verificationStates = [
     variant: 'unverified' as const,
     label: 'UNVERIFIED · SELF-DECLARED',
     heading: 'The creator made the claim.',
-    body: 'The Work was submitted as human-made, but Humn has not cleared it through the automated detector pipeline. This label is neutral: it is not an accusation, endorsement, or automated finding.',
+    body: 'The Work was submitted as human-made, but Humn has not cleared it through the automated detector pipeline. This label is neutral: it is not an accusation, endorsement, or automated finding. Uncertain completed reviews return to this state instead of waiting indefinitely for a reviewer.',
   },
   {
     variant: 'awaiting' as const,
     label: 'AWAITING AUTOMATED REVIEW',
-    heading: 'The automated review is pending or uncertain.',
-    body: 'Humn is running detector and provenance checks, or the signals could not safely agree. A Work may stay here when confidence is low, a provider is unavailable, screen rephotography is suspected, or the case needs additional review.',
+    heading: 'The automated review is actively processing.',
+    body: 'Humn has queued or started its detector and provenance checks. AWAITING is a temporary processing state—not a permanent holding area. When the run completes, the Work becomes VERIFIED, REJECTED, or returns to SELF-DECLARED.',
   },
   {
     variant: 'verified' as const,
     label: 'VERIFIED · AUTOMATED CLEAR',
     heading: AUTOMATED_VERIFIED_EXPLANATION,
-    body: 'Two independent content detectors cleared the Work under Humn’s configured thresholds and no blocking integrity signal was present. This is an automated result. It is not human-reviewed and it is not a guarantee of authorship, originality, copyright ownership, or perfect detector accuracy.',
+    body: 'Two independent content detectors cleared the Work under Humn’s configured thresholds, required AI/deepfake/confidence scores were present, and no blocking integrity or local screen-rephotograph signal was present. This is an automated result. It is not human-reviewed and it is not a guarantee of authorship, originality, copyright ownership, or perfect detector accuracy.',
   },
 ];
 
@@ -72,7 +72,7 @@ export default function OriginStatusPage() {
           </ul>
         </div>
         <p className="method-hedge">
-          Every score is a signal, not a verdict by itself. Strong synthetic signals can reject a submission; disagreement, low confidence, unavailable checks, or suspected screen rephotography escalate rather than silently pass.
+          Every score is a signal, not a verdict by itself. Strong synthetic signals can reject a submission. Disagreement, low confidence, unavailable checks, incomplete scores, duplicate concerns, or suspected screen rephotography do not auto-pass; the Work publishes as SELF-DECLARED instead.
         </p>
       </section>
 
@@ -94,7 +94,7 @@ export default function OriginStatusPage() {
           A VERIFIED · AUTOMATED CLEAR badge means the Work cleared Humn’s automated origin detectors under the pipeline and thresholds in use at that time. Detectors can make mistakes, new generation methods can evade older models, and rephotographed or partially edited images are especially difficult.
         </p>
         <p>
-          Humn therefore preserves detector results and audit evidence, escalates uncertain cases, and avoids describing automated clearance as human verification.
+          Humn therefore preserves detector results and audit evidence, uses a conservative local screen heuristic, returns uncertain cases to SELF-DECLARED, and avoids describing automated clearance as human verification.
         </p>
         <div className="actions">
           <Link className="button" href="/method/proof-records">How proof records work</Link>
