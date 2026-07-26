@@ -14,6 +14,11 @@ const display = Fraunces({ subsets: ['latin'], weight: ['600'], variable: '--fon
 const body = Inter_Tight({ subsets: ['latin'], weight: ['400', '500'], variable: '--font-body', display: 'swap' });
 const mono = JetBrains_Mono({ subsets: ['latin'], weight: ['400', '500'], variable: '--font-mono', display: 'swap' });
 
+// The global navigation reads the authenticated Supabase session from cookies.
+// Marking the root layout dynamic prevents expected cookie access from being
+// logged as a failed static-render attempt for every route during production builds.
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   metadataBase: new URL(getSiteOrigin()),
   title: productConfig.name,
