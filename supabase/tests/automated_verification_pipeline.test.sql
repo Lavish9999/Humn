@@ -1,5 +1,5 @@
 begin;
-select plan(43);
+select plan(44);
 
 select has_table('public', 'verification_pipeline_config', 'tunable verification config exists');
 select has_table('public', 'verification_pipeline_runs', 'verification run ledger exists');
@@ -62,7 +62,10 @@ select ok(
   'database refuses VERIFIED when a required provider errors'
 );
 select ok(
-  position('nullif(r ->> ''deepfakeScore''::text, ''''::text) IS NOT NULL' in pg_get_functiondef(
+  position('deepfakeScore' in pg_get_functiondef(
+    'public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure
+  )) > 0
+  and position('IS NOT NULL' in pg_get_functiondef(
     'public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure
   )) > 0,
   'database requires a present deepfake score from each clear provider'
@@ -78,6 +81,12 @@ select ok(
     'public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure
   ))) = 0,
   'completion RPC does not require a primary recapture score'
+);
+select ok(
+  position('stale_attempt_self_declared' in pg_get_functiondef(
+    'public.claim_verification_run(uuid)'::regprocedure
+  )) > 0,
+  'first stale running attempt becomes terminal SELF-DECLARED instead of being requeued'
 );
 select ok(
   position('VERIFIED is awarded only by the automated detector pipeline' in pg_get_functiondef(
