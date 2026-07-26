@@ -1,10 +1,24 @@
+import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
 import { ProvenanceBadge } from '../../components/provenance-badge';
 import { ToggleSwitch } from '../../components/toggle-switch';
 import { WorkCard } from '../../components/work-card';
 import { getWorkFeed } from '../../lib/data/works';
 import { pluralize } from '../../lib/pluralize';
 
+export const metadata: Metadata = {
+  title: 'Humn editorial system',
+  robots: { index: false, follow: false },
+};
+
+function styleGuideIsAvailable() {
+  if (process.env.NODE_ENV !== 'production') return true;
+  return process.env.VERCEL_ENV === 'preview';
+}
+
 export default async function StyleGuidePage() {
+  if (!styleGuideIsAvailable()) notFound();
+
   const { items: catalogueWorks } = await getWorkFeed({ limit: 4 });
   const mosaicWorks = catalogueWorks.slice(0, 4);
 
@@ -57,8 +71,8 @@ export default async function StyleGuidePage() {
         <section className="style-guide-section" id="provenance-method">
           <div className="panel-label">Provenance badges</div>
           <div className="badge-specimens">
-            <ProvenanceBadge variant="verified" label="VERIFIED · 4 PROOFS" />
-            <ProvenanceBadge variant="awaiting" label="AWAITING REVIEW" />
+            <ProvenanceBadge variant="verified" label="VERIFIED · AUTOMATED CLEAR" />
+            <ProvenanceBadge variant="awaiting" label="AWAITING AUTOMATED REVIEW" />
             <ProvenanceBadge variant="unverified" label="UNVERIFIED · SELF-DECLARED" />
           </div>
           <p className="muted">Only VERIFIED uses the accent color. A self-declared Work is neutral and has not been endorsed by Humn.</p>
