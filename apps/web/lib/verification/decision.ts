@@ -18,6 +18,11 @@ function scoreAtMost(value: number | null, threshold: number): boolean {
   return value !== null && value <= threshold;
 }
 
+function recaptureStatus(result: DetectorResult): string {
+  const value = result.contentFlags.recapture_status;
+  return typeof value === 'string' && value.trim() ? value.trim() : 'unavailable';
+}
+
 export function evaluateVerificationDecision({
   results,
   provenance,
@@ -100,6 +105,19 @@ export function evaluateVerificationDecision({
       decision: 'escalate',
       reasonCode: 'SCREEN_REPHOTOGRAPH_SUSPECTED',
       reason: 'A screen or print rephotograph may be present. V1 coverage is partial, so this case requires escalation rather than an automatic pass.',
+      requiredProviderAgreement: false,
+      strongSignals,
+      uncertaintySignals,
+    };
+  }
+
+  if (primary.recaptureScore === null) {
+    const status = recaptureStatus(primary);
+    uncertaintySignals.push(`${primary.provider} recapture signal unavailable (${status})`);
+    return {
+      decision: 'escalate',
+      reasonCode: 'RECAPTURE_SIGNAL_UNAVAILABLE',
+      reason: 'The primary detector did not provide a screen-recapture score. Humn treated that missing escalation-only signal as uncertainty rather than silently clearing it.',
       requiredProviderAgreement: false,
       strongSignals,
       uncertaintySignals,
