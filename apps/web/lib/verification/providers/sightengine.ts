@@ -35,10 +35,12 @@ function contentFlags({
   safety,
   recaptureEnabled,
   recaptureStatus,
+  recaptureErrorCode,
 }: {
   safety: SightengineCall | null;
   recaptureEnabled: boolean;
   recaptureStatus: string;
+  recaptureErrorCode: string | null;
 }): JsonRecord {
   return {
     nudity: safety?.body.nudity ?? null,
@@ -51,6 +53,7 @@ function contentFlags({
       : 'disabled',
     recapture_enabled: recaptureEnabled,
     recapture_status: recaptureStatus,
+    recapture_error_code: recaptureErrorCode,
   };
 }
 
@@ -128,7 +131,8 @@ export function createSightengineProvider(role: DetectorRole): DetectorProvider 
 
       let recapture: SightengineCall | null = null;
       let recaptureScore: number | null = null;
-      let recaptureStatus = recaptureEnabled ? 'pending' : 'disabled_not_entitled';
+      let recaptureStatus = recaptureEnabled ? 'pending' : 'disabled';
+      let recaptureErrorCode: string | null = null;
 
       if (recaptureEnabled) {
         try {
@@ -137,59 +141,34 @@ export function createSightengineProvider(role: DetectorRole): DetectorProvider 
             { method: 'POST', body: makeForm(input, 'recapture', apiUser, apiSecret) },
             input.timeoutMs,
           );
+
+          if (!recapture.response.ok || recapture.body.status === 'failure') {
+            recaptureErrorCode = errorCode(
+              recapture.body,
+              recapture.response.status,
+              'SIGHTENGINE_RECAPTURE',
+            );
+            recaptureStatus = 'unavailable';
+          } else {
+            recaptureScore = numberAt(recapture.body, [
+              ['recapture', 'score'],
+              ['recapture', 'probability'],
+              ['type', 'recapture'],
+            ]);
+            if (recaptureScore === null) {
+              recaptureStatus = 'score_missing';
+              recaptureErrorCode = 'SIGHTENGINE_RECAPTURE_SCORE_MISSING';
+            } else {
+              recaptureStatus = 'ok';
+            }
+          }
         } catch (error) {
           const failed = resultFromFailure('sightengine', role, error, Date.now() - started);
-          return {
-            ...failed,
-            modelVersion: `${coreModels}+recapture`,
-            aiScore,
-            authenticScore: 1 - aiScore,
-            confidence: normalizedAiScores(aiScore).confidence,
-            deepfakeScore,
-            rawResponse: { core: core.body, recapture: {} },
-            errorCode: failed.status === 'timeout'
-              ? 'SIGHTENGINE_RECAPTURE_TIMEOUT'
-              : 'SIGHTENGINE_RECAPTURE_REQUEST_FAILED',
-          };
+          recaptureStatus = failed.status === 'timeout' ? 'timeout' : 'request_failed';
+          recaptureErrorCode = failed.status === 'timeout'
+            ? 'SIGHTENGINE_RECAPTURE_TIMEOUT'
+            : 'SIGHTENGINE_RECAPTURE_REQUEST_FAILED';
         }
-
-        if (!recapture.response.ok || recapture.body.status === 'failure') {
-          return {
-            ...unavailableDetectorResult(
-              'sightengine',
-              role,
-              errorCode(recapture.body, recapture.response.status, 'SIGHTENGINE_RECAPTURE'),
-            ),
-            status: 'error',
-            modelVersion: `${coreModels}+recapture`,
-            aiScore,
-            authenticScore: 1 - aiScore,
-            confidence: normalizedAiScores(aiScore).confidence,
-            deepfakeScore,
-            rawResponse: { core: core.body, recapture: recapture.body },
-            latencyMs: Date.now() - started,
-          };
-        }
-
-        recaptureScore = numberAt(recapture.body, [
-          ['recapture', 'score'],
-          ['recapture', 'probability'],
-          ['type', 'recapture'],
-        ]);
-        if (recaptureScore === null) {
-          return {
-            ...unavailableDetectorResult('sightengine', role, 'SIGHTENGINE_RECAPTURE_SCORE_MISSING'),
-            status: 'error',
-            modelVersion: `${coreModels}+recapture`,
-            aiScore,
-            authenticScore: 1 - aiScore,
-            confidence: normalizedAiScores(aiScore).confidence,
-            deepfakeScore,
-            rawResponse: { core: core.body, recapture: recapture.body },
-            latencyMs: Date.now() - started,
-          };
-        }
-        recaptureStatus = 'ok';
       }
 
       let safety: SightengineCall | null = null;
@@ -219,7 +198,12 @@ export function createSightengineProvider(role: DetectorRole): DetectorProvider 
         recaptureScore,
         deepfakeScore,
         partialAiScore: null,
-        contentFlags: contentFlags({ safety, recaptureEnabled, recaptureStatus }),
+        contentFlags: contentFlags({
+          safety,
+          recaptureEnabled,
+          recaptureStatus,
+          recaptureErrorCode,
+        }),
         rawResponse: {
           core: core.body,
           recapture: recapture?.body ?? null,
