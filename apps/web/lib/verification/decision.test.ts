@@ -143,6 +143,20 @@ test('required provider timeout publishes SELF-DECLARED and never defaults to VE
   assert.equal(result.reasonCode, 'REQUIRED_PROVIDER_UNAVAILABLE');
 });
 
+test('failed-provider stray scores are ignored and cannot trigger REJECTED', () => {
+  const failedPrimary = detector('primary', 0.99);
+  failedPrimary.status = 'error';
+  failedPrimary.errorCode = 'MALFORMED_PROVIDER_RESPONSE';
+  const result = evaluateVerificationDecision({
+    results: [failedPrimary, detector('secondary', 0.03)],
+    provenance,
+    screen: cleanScreen,
+    thresholds,
+  });
+  assert.equal(result.decision, 'self_declared');
+  assert.equal(result.reasonCode, 'REQUIRED_PROVIDER_UNAVAILABLE');
+});
+
 test('detector disagreement remains SELF-DECLARED', () => {
   const result = evaluateVerificationDecision({
     results: [detector('primary', 0.05), detector('secondary', 0.55)],
