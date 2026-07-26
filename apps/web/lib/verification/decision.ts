@@ -18,11 +18,6 @@ function scoreAtMost(value: number | null, threshold: number): boolean {
   return value !== null && value <= threshold;
 }
 
-function recaptureStatus(result: DetectorResult): string {
-  const value = result.contentFlags.recapture_status;
-  return typeof value === 'string' && value.trim() ? value.trim() : 'unavailable';
-}
-
 export function evaluateVerificationDecision({
   results,
   provenance,
@@ -83,41 +78,32 @@ export function evaluateVerificationDecision({
   }
   if (!primary || !secondary || required.some(result => result.status !== 'ok')) {
     return {
-      decision: 'escalate',
+      decision: 'self_declared',
       reasonCode: 'REQUIRED_PROVIDER_UNAVAILABLE',
-      reason: 'A required detector was unavailable, timed out or returned an invalid response. Humn did not default to VERIFIED.',
+      reason: 'A required detector was unavailable, timed out or returned an invalid response. The Work remains SELF-DECLARED and was not defaulted to VERIFIED.',
       requiredProviderAgreement: false,
       strongSignals,
       uncertaintySignals,
     };
   }
 
-  const recaptureSignals = results.filter(result => (
+  // Sightengine Recapture is not required and is not requested in the current
+  // configuration. This optional branch remains dormant behind the existing
+  // environment flag so a future provisioned score can still conservatively
+  // return a Work to SELF-DECLARED; absence is neutral and never blocks review.
+  const optionalRecaptureSignals = results.filter(result => (
     result.status === 'ok'
     && scoreAtLeast(result.recaptureScore, thresholds.recaptureEscalateThreshold)
   ));
-  if (screen.suspected || recaptureSignals.length > 0) {
+  if (screen.suspected || optionalRecaptureSignals.length > 0) {
     if (screen.suspected) uncertaintySignals.push(`local screen-rephotograph score ${screen.score.toFixed(3)}`);
-    for (const result of recaptureSignals) {
-      uncertaintySignals.push(`${result.provider} recapture score ${result.recaptureScore?.toFixed(3)}`);
+    for (const result of optionalRecaptureSignals) {
+      uncertaintySignals.push(`${result.provider} optional recapture score ${result.recaptureScore?.toFixed(3)}`);
     }
     return {
-      decision: 'escalate',
+      decision: 'self_declared',
       reasonCode: 'SCREEN_REPHOTOGRAPH_SUSPECTED',
-      reason: 'A screen or print rephotograph may be present. V1 coverage is partial, so this case requires escalation rather than an automatic pass.',
-      requiredProviderAgreement: false,
-      strongSignals,
-      uncertaintySignals,
-    };
-  }
-
-  if (primary.recaptureScore === null) {
-    const status = recaptureStatus(primary);
-    uncertaintySignals.push(`${primary.provider} recapture signal unavailable (${status})`);
-    return {
-      decision: 'escalate',
-      reasonCode: 'RECAPTURE_SIGNAL_UNAVAILABLE',
-      reason: 'The primary detector did not provide a screen-recapture score. Humn treated that missing escalation-only signal as uncertainty rather than silently clearing it.',
+      reason: 'A screen or print rephotograph may be present. The Work remains SELF-DECLARED rather than receiving an automated-clear badge.',
       requiredProviderAgreement: false,
       strongSignals,
       uncertaintySignals,
@@ -127,9 +113,9 @@ export function evaluateVerificationDecision({
   if (provenance.duplicateHash) {
     uncertaintySignals.push('the untouched original hash exactly matches an existing Work');
     return {
-      decision: 'escalate',
+      decision: 'self_declared',
       reasonCode: 'DUPLICATE_ORIGINAL_HASH',
-      reason: 'The original file duplicates an existing Work. Exact duplication is an integrity concern, but it is not enough by itself to prove AI generation.',
+      reason: 'The original file duplicates an existing Work. Exact duplication is an integrity concern, but it is not enough by itself to prove AI generation, so the Work remains SELF-DECLARED.',
       requiredProviderAgreement: false,
       strongSignals,
       uncertaintySignals,
@@ -145,39 +131,58 @@ export function evaluateVerificationDecision({
       uncertaintySignals.push(`${result.provider} localized-region score ${result.partialAiScore?.toFixed(3)}`);
     }
     return {
-      decision: 'escalate',
+      decision: 'self_declared',
       reasonCode: 'LOCALIZED_AI_SUSPECTED',
-      reason: 'The optional localized detector found a region that may contain generative editing. Partial-image signals escalate and never reject on their own.',
+      reason: 'The optional localized detector found a region that may contain generative editing. Partial-image signals do not reject on their own; the Work remains SELF-DECLARED.',
       requiredProviderAgreement: false,
       strongSignals,
       uncertaintySignals,
     };
   }
 
-  const lowConfidence = required.filter(result => (
-    result.confidence === null || result.confidence < thresholds.minConfidence
+  const missingCoreScores = required.filter(result => (
+    result.aiScore === null
+    || result.deepfakeScore === null
+    || result.confidence === null
   ));
+  if (missingCoreScores.length > 0) {
+    for (const result of missingCoreScores) {
+      uncertaintySignals.push(`${result.provider} omitted a required AI, deepfake or confidence score`);
+    }
+    return {
+      decision: 'self_declared',
+      reasonCode: 'REQUIRED_SCORE_MISSING',
+      reason: 'A required detector response was incomplete. The Work remains SELF-DECLARED and was not defaulted to VERIFIED.',
+      requiredProviderAgreement: false,
+      strongSignals,
+      uncertaintySignals,
+    };
+  }
+
+  const lowConfidence = required.filter(result => result.confidence! < thresholds.minConfidence);
   if (lowConfidence.length > 0) {
     for (const result of lowConfidence) {
       uncertaintySignals.push(`${result.provider} confidence ${result.confidence?.toFixed(3) ?? 'missing'}`);
     }
     return {
-      decision: 'escalate',
+      decision: 'self_declared',
       reasonCode: 'LOW_DETECTOR_CONFIDENCE',
-      reason: 'Required detectors returned confidence below Humn’s configured minimum.',
+      reason: 'Required detectors returned confidence below Humn’s configured minimum. The Work remains SELF-DECLARED.',
       requiredProviderAgreement: false,
       strongSignals,
       uncertaintySignals,
     };
   }
 
-  const primaryClear = scoreAtMost(primary.aiScore, thresholds.aiClearThreshold);
-  const secondaryClear = scoreAtMost(secondary.aiScore, thresholds.aiClearThreshold);
+  const primaryClear = scoreAtMost(primary.aiScore, thresholds.aiClearThreshold)
+    && primary.deepfakeScore! < thresholds.deepfakeRejectThreshold;
+  const secondaryClear = scoreAtMost(secondary.aiScore, thresholds.aiClearThreshold)
+    && secondary.deepfakeScore! < thresholds.deepfakeRejectThreshold;
   if (primaryClear && secondaryClear) {
     return {
       decision: 'verified',
       reasonCode: 'TWO_DETECTOR_CLEAR',
-      reason: 'Both independent required detectors cleared the image at high confidence, and no adverse provenance or screen-rephotograph signal was present.',
+      reason: 'Both independent required detectors cleared the image at high confidence, and no adverse provenance or local screen-rephotograph signal was present.',
       requiredProviderAgreement: true,
       strongSignals,
       uncertaintySignals,
@@ -189,9 +194,9 @@ export function evaluateVerificationDecision({
     `${secondary.provider} AI score ${secondary.aiScore?.toFixed(3) ?? 'missing'}`,
   );
   return {
-    decision: 'escalate',
+    decision: 'self_declared',
     reasonCode: 'DETECTOR_DISAGREEMENT_OR_AMBIGUITY',
-    reason: 'The required detectors did not both reach the configured clear range. Uncertain or disagreeing results are never auto-passed.',
+    reason: 'The required detectors did not both reach the configured clear range. The Work remains SELF-DECLARED rather than being auto-passed or held indefinitely.',
     requiredProviderAgreement: false,
     strongSignals,
     uncertaintySignals,
