@@ -53,7 +53,12 @@ export function recursiveClassScores(root: unknown): Map<string, number> {
         : typeof record.label === 'string'
           ? record.label
           : null;
-    const score = firstNumeric(record.score ?? record.confidence ?? record.probability);
+    const score = firstNumeric(
+      record.value
+      ?? record.score
+      ?? record.confidence
+      ?? record.probability,
+    );
     if (className && score !== null) {
       const normalized = className.trim().toLowerCase();
       scores.set(normalized, Math.max(scores.get(normalized) ?? 0, score));
