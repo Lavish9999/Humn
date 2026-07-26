@@ -298,7 +298,7 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
 
           <footer className="provenance-footer">
             <Link className="report-work-link" href={`/report/${work.id}`}>Report this work</Link>
-            <Link href="/style-guide#provenance-method">How verification works</Link>
+            <Link href="/method/origin-status">How verification works</Link>
           </footer>
         </aside>
       </article>
