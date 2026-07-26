@@ -49,6 +49,9 @@ export function evaluateVerificationDecision({
   }
 
   for (const result of required) {
+    // Failed, unavailable and timed-out responses are uncertainty, even if a
+    // malformed vendor payload happened to include a numeric field.
+    if (result.status !== 'ok') continue;
     if (scoreAtLeast(result.aiScore, thresholds.aiRejectThreshold)) {
       strongSignals.push(`${result.provider} AI score ${result.aiScore?.toFixed(3)}`);
     }
