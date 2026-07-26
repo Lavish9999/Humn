@@ -3,7 +3,7 @@ import 'server-only';
 import sharp from 'sharp';
 import { getAdminSupabase } from '../supabase/admin';
 import { ORIGINAL_BUCKET } from '../uploads/constants';
-import { loadVerificationThresholds, thresholdSnapshot } from './config';
+import { loadVerificationThresholds, parseVerificationThresholds, thresholdSnapshot } from './config';
 import { evaluateVerificationDecision } from './decision';
 import { createDetectorProvider } from './providers/registry';
 import { analyzeScreenRephotographHeuristics } from './screen-heuristics';
@@ -160,7 +160,16 @@ async function executeClaimedRun(
   admin: ReturnType<typeof getAdminSupabase>,
   claim: ClaimedVerificationRun,
 ): Promise<PipelineOutcome> {
+  // claim_verification_run returns the same constrained singleton config used to
+  // authorize the claim. Keep it as a durable fallback so a transient second
+  // read cannot strand an already-running Work in AWAITING.
   let thresholds: VerificationThresholds | null = null;
+  try {
+    thresholds = parseVerificationThresholds(claim.config);
+  } catch {
+    thresholds = null;
+  }
+
   let screen: ScreenHeuristicResult = {
     score: 0,
     suspected: false,
@@ -178,8 +187,18 @@ async function executeClaimedRun(
   };
 
   try {
-    const loadedThresholds = await loadVerificationThresholds(admin);
-    thresholds = loadedThresholds;
+    try {
+      thresholds = await loadVerificationThresholds(admin);
+    } catch (configReloadError) {
+      if (!thresholds) throw configReloadError;
+      console.warn('[automated-verification] Config reload failed; using claimed snapshot.', {
+        runId: claim.run_id,
+        workId: claim.work_id,
+        errorClass: configReloadError instanceof Error ? configReloadError.name : 'UnknownError',
+      });
+    }
+
+    const activeThresholds = thresholds;
     const original = await locateOriginal(admin, claim.creator_id, claim.work_id);
     const metadata = await sharp(original.bytes, { failOn: 'error', limitInputPixels: 100_000_000 }).metadata();
     if (!metadata.width || !metadata.height) throw new Error('Original dimensions could not be read.');
@@ -189,14 +208,14 @@ async function executeClaimedRun(
       original.bytes,
       metadata.width,
       metadata.height,
-      loadedThresholds.localScreenEscalateThreshold,
+      activeThresholds.localScreenEscalateThreshold,
     );
 
     const providers = [
-      createDetectorProvider(loadedThresholds.primaryProvider, 'primary'),
-      createDetectorProvider(loadedThresholds.secondaryProvider, 'secondary'),
+      createDetectorProvider(activeThresholds.primaryProvider, 'primary'),
+      createDetectorProvider(activeThresholds.secondaryProvider, 'secondary'),
     ];
-    if (loadedThresholds.optionalProviderEnabled) {
+    if (activeThresholds.optionalProviderEnabled) {
       providers.push(createDetectorProvider('illuminarty', 'optional'));
     }
 
@@ -206,16 +225,16 @@ async function executeClaimedRun(
       fileName: original.fileName,
       workId: claim.work_id,
       creatorId: claim.creator_id,
-      timeoutMs: loadedThresholds.providerTimeoutMs,
+      timeoutMs: activeThresholds.providerTimeoutMs,
     })));
 
     const decision = evaluateVerificationDecision({
       results,
       provenance,
       screen,
-      thresholds: loadedThresholds,
+      thresholds: activeThresholds,
     });
-    await completeRun(admin, claim, loadedThresholds, results, screen, decision);
+    await completeRun(admin, claim, activeThresholds, results, screen, decision);
     return {
       processed: true,
       workId: claim.work_id,
