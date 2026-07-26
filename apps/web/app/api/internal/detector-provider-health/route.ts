@@ -5,6 +5,14 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
+type ProviderCheck = {
+  statusCode: number | null;
+  accepted: boolean;
+  hasExpectedScore: boolean;
+  errorCode: string | null;
+  errorMessage: string | null;
+};
+
 function findClassScore(value: unknown, target: string): number | null {
   if (Array.isArray(value)) {
     for (const item of value) {
@@ -25,6 +33,78 @@ function findClassScore(value: unknown, target: string): number | null {
     if (found !== null) return found;
   }
   return null;
+}
+
+function errorDetails(body: Record<string, unknown>, fallback: string) {
+  const error = body.error && typeof body.error === 'object'
+    ? body.error as Record<string, unknown>
+    : null;
+  return {
+    errorCode: typeof error?.code === 'string' ? error.code : fallback,
+    errorMessage: typeof error?.message === 'string'
+      ? error.message.slice(0, 240)
+      : typeof body.message === 'string'
+        ? body.message.slice(0, 240)
+        : null,
+  };
+}
+
+async function checkSightengine({
+  image,
+  model,
+  apiUser,
+  apiSecret,
+}: {
+  image: Buffer;
+  model: 'genai' | 'recapture' | 'deepfake';
+  apiUser: string;
+  apiSecret: string;
+}): Promise<ProviderCheck> {
+  try {
+    const form = new FormData();
+    form.append('media', new Blob([new Uint8Array(image)], { type: 'image/jpeg' }), 'humn-provider-health.jpg');
+    form.append('models', model);
+    form.append('api_user', apiUser);
+    form.append('api_secret', apiSecret);
+    const response = await fetch('https://api.sightengine.com/1.0/check.json', {
+      method: 'POST',
+      body: form,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(20_000),
+    });
+    const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+    const type = body.type && typeof body.type === 'object'
+      ? body.type as Record<string, unknown>
+      : null;
+    const expectedScore = model === 'genai'
+      ? type?.ai_generated
+      : model === 'deepfake'
+        ? type?.deepfake
+        : body.recapture && typeof body.recapture === 'object'
+          ? (body.recapture as Record<string, unknown>).score
+          : null;
+    const hasExpectedScore = typeof expectedScore === 'number' && Number.isFinite(expectedScore);
+    const accepted = response.ok && body.status !== 'failure' && hasExpectedScore;
+    const details = accepted
+      ? { errorCode: null, errorMessage: null }
+      : errorDetails(body, `SIGHTENGINE_HTTP_${response.status}`);
+    return {
+      statusCode: response.status,
+      accepted,
+      hasExpectedScore,
+      ...details,
+    };
+  } catch (error) {
+    return {
+      statusCode: null,
+      accepted: false,
+      hasExpectedScore: false,
+      errorCode: error instanceof DOMException && error.name === 'TimeoutError'
+        ? 'SIGHTENGINE_TIMEOUT'
+        : 'SIGHTENGINE_REQUEST_FAILED',
+      errorMessage: error instanceof Error ? error.message.slice(0, 240) : null,
+    };
+  }
 }
 
 export async function GET() {
@@ -51,59 +131,24 @@ export async function GET() {
     },
   }).jpeg({ quality: 90 }).toBuffer();
 
-  const sightengine = {
-    configured: Boolean(sightengineUser && sightengineSecret),
-    statusCode: null as number | null,
-    accepted: false,
-    hasAiScore: false,
-    errorCode: null as string | null,
-  };
-
-  if (sightengine.configured) {
-    try {
-      const form = new FormData();
-      form.append('media', new Blob([new Uint8Array(image)], { type: 'image/jpeg' }), 'humn-provider-health.jpg');
-      form.append('models', 'genai,recapture,deepfake');
-      form.append('api_user', sightengineUser);
-      form.append('api_secret', sightengineSecret);
-      const response = await fetch('https://api.sightengine.com/1.0/check.json', {
-        method: 'POST',
-        body: form,
-        cache: 'no-store',
-        signal: AbortSignal.timeout(20_000),
-      });
-      const body = await response.json().catch(() => ({})) as Record<string, unknown>;
-      const aiScore = body.type && typeof body.type === 'object'
-        ? (body.type as Record<string, unknown>).ai_generated
-        : null;
-      sightengine.statusCode = response.status;
-      sightengine.hasAiScore = typeof aiScore === 'number' && Number.isFinite(aiScore);
-      sightengine.accepted = response.ok && body.status !== 'failure' && sightengine.hasAiScore;
-      if (!sightengine.accepted) {
-        const error = body.error && typeof body.error === 'object'
-          ? body.error as Record<string, unknown>
-          : null;
-        sightengine.errorCode = typeof error?.code === 'string'
-          ? error.code
-          : `SIGHTENGINE_HTTP_${response.status}`;
+  const sightengine = sightengineUser && sightengineSecret
+    ? {
+        genai: await checkSightengine({ image, model: 'genai', apiUser: sightengineUser, apiSecret: sightengineSecret }),
+        recapture: await checkSightengine({ image, model: 'recapture', apiUser: sightengineUser, apiSecret: sightengineSecret }),
+        deepfake: await checkSightengine({ image, model: 'deepfake', apiUser: sightengineUser, apiSecret: sightengineSecret }),
       }
-    } catch (error) {
-      sightengine.errorCode = error instanceof DOMException && error.name === 'TimeoutError'
-        ? 'SIGHTENGINE_TIMEOUT'
-        : 'SIGHTENGINE_REQUEST_FAILED';
-    }
-  }
+    : null;
 
-  const hive = {
-    configured: Boolean(hiveSecret),
-    statusCode: null as number | null,
+  const hive: ProviderCheck & { hasDeepfakeScore: boolean } = {
+    statusCode: null,
     accepted: false,
-    hasAiScore: false,
+    hasExpectedScore: false,
     hasDeepfakeScore: false,
-    errorCode: null as string | null,
+    errorCode: hiveSecret ? null : 'HIVE_NOT_CONFIGURED',
+    errorMessage: null,
   };
 
-  if (hive.configured) {
+  if (hiveSecret) {
     try {
       const response = await fetch(
         'https://api.thehive.ai/api/v3/hive/ai-generated-and-deepfake-content-detection',
@@ -125,17 +170,23 @@ export async function GET() {
       const aiScore = findClassScore(body, 'ai_generated');
       const deepfakeScore = findClassScore(body, 'deepfake');
       hive.statusCode = response.status;
-      hive.hasAiScore = aiScore !== null;
+      hive.hasExpectedScore = aiScore !== null;
       hive.hasDeepfakeScore = deepfakeScore !== null;
-      hive.accepted = response.ok && hive.hasAiScore;
-      if (!hive.accepted) hive.errorCode = `HIVE_HTTP_${response.status}`;
+      hive.accepted = response.ok && hive.hasExpectedScore;
+      if (!hive.accepted) Object.assign(hive, errorDetails(body, `HIVE_HTTP_${response.status}`));
     } catch (error) {
       hive.errorCode = error instanceof DOMException && error.name === 'TimeoutError'
         ? 'HIVE_TIMEOUT'
         : 'HIVE_REQUEST_FAILED';
+      hive.errorMessage = error instanceof Error ? error.message.slice(0, 240) : null;
     }
   }
 
-  const ok = Object.values(configured).every(Boolean) && sightengine.accepted && hive.accepted;
+  const sightengineAccepted = Boolean(
+    sightengine?.genai.accepted
+    && sightengine.recapture.accepted
+    && sightengine.deepfake.accepted,
+  );
+  const ok = Object.values(configured).every(Boolean) && sightengineAccepted && hive.accepted;
   return NextResponse.json({ ok, configured, sightengine, hive }, { status: ok ? 200 : 503 });
 }
