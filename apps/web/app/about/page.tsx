@@ -18,17 +18,18 @@ export default function AboutPage() {
         <h2>What the platform is for</h2>
         <p>
           People can publish work, show how it was made, organize references into Collections,
-          follow creators, and inspect the evidence attached to each Work. Verified status is
-          reserved for reviewed process evidence; an unsupported upload is labeled unverified
-          and is not treated as a Humn endorsement.
+          follow creators, and inspect the evidence attached to each Work. An automated origin
+          check passes only when two independent detectors clear the Work and every configured
+          integrity guard is clean. Unsupported or uncertain uploads remain CREATOR DECLARED.
         </p>
         <p>
-          Missing metadata remains neutral. Humn does not accuse creators from appearance alone,
-          and it does not display AI-likelihood percentages or detector verdicts.
+          Missing metadata remains neutral. Humn does not claim that an automated check proves
+          human authorship, originality, or ownership. Public pages summarize the outcome while
+          detailed vendor scores remain private to the creator and authorized reviewers.
         </p>
         <div className="actions">
           <Link className="button primary" href="/discover">Explore Discover</Link>
-          <Link className="button" href="/method/origin-status">Read the origin-status outline</Link>
+          <Link className="button" href="/method/origin-status">Read how origin checks work</Link>
         </div>
       </section>
     </main>
