@@ -62,7 +62,7 @@ export async function GET() {
   if (sightengine.configured) {
     try {
       const form = new FormData();
-      form.append('media', new Blob([image], { type: 'image/jpeg' }), 'humn-provider-health.jpg');
+      form.append('media', new Blob([new Uint8Array(image)], { type: 'image/jpeg' }), 'humn-provider-health.jpg');
       form.append('models', 'genai,recapture,deepfake');
       form.append('api_user', sightengineUser);
       form.append('api_secret', sightengineSecret);
