@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "postbuild": "npm run migrate:verification-preview && npm run smoke:preview",
-    "migrate:verification-preview": "if [ \"$VERCEL_ENV\" = \"preview\" ] && [ \"$VERCEL_GIT_COMMIT_REF\" = \"feat/automated-verification-pipeline\" ]; then if [ -z \"$SUPABASE_ACCESS_TOKEN\" ]; then echo 'HUMN_VERIFICATION_MIGRATION_BLOCKED: SUPABASE_ACCESS_TOKEN is missing'; else cd ../.. && echo 'HUMN_LOCAL_MIGRATIONS_BEGIN' && find supabase/migrations -maxdepth 1 -type f -printf '%f\\n' | sort | grep '^20260725' && echo 'HUMN_LOCAL_MIGRATION_HASHES' && sha256sum supabase/migrations/202607250018* 2>/dev/null || true; npx --yes supabase@latest link --project-ref bondfumehickzmmbfwoe && (npx --yes supabase@latest migration list --linked || true); fi; else echo 'HUMN_VERIFICATION_MIGRATION_SKIP: not target Preview'; fi",
+    "migrate:verification-preview": "if [ \"$VERCEL_ENV\" = \"preview\" ] && [ \"$VERCEL_GIT_COMMIT_REF\" = \"feat/automated-verification-pipeline\" ]; then if [ -z \"$SUPABASE_ACCESS_TOKEN\" ]; then echo 'HUMN_VERIFICATION_MIGRATION_BLOCKED: SUPABASE_ACCESS_TOKEN is missing'; else cd ../.. && npx --yes supabase@latest link --project-ref bondfumehickzmmbfwoe && npx --yes supabase@latest db push --linked --include-all --yes; fi; else echo 'HUMN_VERIFICATION_MIGRATION_SKIP: not target Preview'; fi",
     "smoke:preview": "NEXT_PUBLIC_SUPABASE_URL=https://bondfumehickzmmbfwoe.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_PRuJO2R0zZscKl5vHaWdSA_Z-IwUFDl NODE_OPTIONS=--conditions=react-server npx --yes tsx scripts/verification-smoke-preview.ts",
     "start": "next start",
     "typecheck": "tsc --noEmit",
