@@ -95,10 +95,10 @@ export default function ProofRecordsPage() {
             <li>Whether a detector will remain accurate against future generation methods.</li>
           </ul>
         </div>
-        <div className="actions">
+        <nav className="actions" aria-label="Related provenance guides">
           <Link className="button" href="/method/origin-status">How verification works</Link>
           <Link className="button" href="/method/moderation-standard">Moderation standard</Link>
-        </div>
+        </nav>
       </section>
     </main>
   );
