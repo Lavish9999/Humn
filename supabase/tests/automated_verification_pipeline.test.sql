@@ -1,5 +1,5 @@
 begin;
-select plan(39);
+select plan(40);
 
 select has_table('public', 'verification_pipeline_config', 'tunable verification config exists');
 select has_table('public', 'verification_pipeline_runs', 'verification run ledger exists');
@@ -90,6 +90,10 @@ select has_trigger(
 select has_trigger(
   'public', 'verification_audit_events', 'humn_verification_audit_append_only',
   'verification audit append-only trigger exists'
+);
+select has_trigger(
+  'public', 'verification_pipeline_runs', 'humn_verified_requires_recapture_signal',
+  'database blocks VERIFIED when the primary recapture signal is absent'
 );
 
 set local role authenticated;
