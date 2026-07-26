@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "postbuild": "npm run smoke:preview",
-    "smoke:preview": "NEXT_PUBLIC_SUPABASE_URL=https://bondfumehickzmmbfwoe.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_PRuJO2R0zZscKl5vHaWdSA_Z-IwUFDl NODE_OPTIONS=--conditions=react-server npx --yes tsx scripts/verification-smoke-preview.ts",
+    "smoke:preview": "node -e \"console.log('HUMN_MIGRATION_CREDENTIALS', JSON.stringify({accessToken:Boolean(process.env.SUPABASE_ACCESS_TOKEN),dbPassword:Boolean(process.env.SUPABASE_DB_PASSWORD),databaseUrl:Boolean(process.env.DATABASE_URL),postgresUrl:Boolean(process.env.POSTGRES_URL),supabaseDbUrl:Boolean(process.env.SUPABASE_DB_URL)}))\" && NEXT_PUBLIC_SUPABASE_URL=https://bondfumehickzmmbfwoe.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_PRuJO2R0zZscKl5vHaWdSA_Z-IwUFDl NODE_OPTIONS=--conditions=react-server npx --yes tsx scripts/verification-smoke-preview.ts",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
