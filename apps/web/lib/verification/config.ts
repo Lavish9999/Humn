@@ -12,14 +12,7 @@ function requiredNumber(value: unknown, field: string): number {
   return numeric;
 }
 
-export async function loadVerificationThresholds(admin: SupabaseClient): Promise<VerificationThresholds> {
-  const { data, error } = await admin
-    .from('verification_pipeline_config')
-    .select('*')
-    .eq('singleton', true)
-    .single();
-  if (error || !data) throw new Error(`Verification configuration could not be loaded: ${error?.message ?? 'missing row'}`);
-  const row = data as Record<string, unknown>;
+export function parseVerificationThresholds(row: Record<string, unknown>): VerificationThresholds {
   return {
     pipelineVersion: requiredString(row.pipeline_version, 'pipeline_version'),
     primaryProvider: requiredString(row.primary_provider, 'primary_provider'),
@@ -34,6 +27,16 @@ export async function loadVerificationThresholds(admin: SupabaseClient): Promise
     providerTimeoutMs: requiredNumber(row.provider_timeout_ms, 'provider_timeout_ms'),
     optionalProviderEnabled: row.optional_provider_enabled === true,
   };
+}
+
+export async function loadVerificationThresholds(admin: SupabaseClient): Promise<VerificationThresholds> {
+  const { data, error } = await admin
+    .from('verification_pipeline_config')
+    .select('*')
+    .eq('singleton', true)
+    .single();
+  if (error || !data) throw new Error(`Verification configuration could not be loaded: ${error?.message ?? 'missing row'}`);
+  return parseVerificationThresholds(data as Record<string, unknown>);
 }
 
 export function thresholdSnapshot(thresholds: VerificationThresholds): Record<string, unknown> {
