@@ -27,7 +27,6 @@ type ManifestRow = {
   license: string;
   notes?: string;
 };
-
 type SampleResult = {
   id: string;
   path: string;
@@ -38,7 +37,6 @@ type SampleResult = {
   screen: ScreenHeuristicResult;
   detectors: DetectorResult[];
 };
-
 type BinaryMetrics = {
   total: number;
   evaluated: number;
@@ -78,7 +76,7 @@ function envNumber(name: string, fallback: number): number {
 
 function defaultThresholds(optionalProviderEnabled: boolean): VerificationThresholds {
   return {
-    pipelineVersion: process.env.DETECTION_PIPELINE_VERSION?.trim() || 'benchmark-2026-07-25.1',
+    pipelineVersion: process.env.DETECTION_PIPELINE_VERSION?.trim() || 'benchmark-2026-07-26.1',
     primaryProvider: process.env.DETECTION_PRIMARY_PROVIDER?.trim() || 'sightengine',
     secondaryProvider: process.env.DETECTION_SECONDARY_PROVIDER?.trim() || 'hive',
     aiRejectThreshold: envNumber('DETECTION_AI_REJECT_THRESHOLD', 0.9),
@@ -101,8 +99,21 @@ function isScreenLabel(label: BenchmarkLabel): boolean {
   return label === 'screen_rephoto_ai' || label === 'screen_rephoto_real';
 }
 
+function isAbstention(decision: string): boolean {
+  return decision === 'self_declared' || decision === 'escalate';
+}
+
 function divide(numerator: number, denominator: number): number | null {
   return denominator === 0 ? null : numerator / denominator;
+}
+
+function percent(value: number | null): string {
+  return value === null ? 'n/a' : `${(value * 100).toFixed(2)}%`;
+}
+
+function csvCell(value: unknown): string {
+  const text = value === null || value === undefined ? '' : String(value);
+  return `"${text.replaceAll('"', '""')}"`;
 }
 
 function binaryMetrics(
@@ -140,22 +151,15 @@ function binaryMetrics(
   };
 }
 
-function percent(value: number | null): string {
-  return value === null ? 'n/a' : `${(value * 100).toFixed(2)}%`;
-}
-
-function csvCell(value: unknown): string {
-  const text = value === null || value === undefined ? '' : String(value);
-  return `"${text.replaceAll('"', '""')}"`;
-}
-
 async function parseManifest(manifestPath: string): Promise<ManifestRow[]> {
   const text = await readFile(manifestPath, 'utf8');
   const rows: ManifestRow[] = [];
   for (const [index, line] of text.split(/\r?\n/).entries()) {
     if (!line.trim()) continue;
     const parsed = JSON.parse(line) as Partial<ManifestRow>;
-    if (!parsed.id || !parsed.path || !parsed.label) throw new Error(`Manifest line ${index + 1} is missing id, path or label.`);
+    if (!parsed.id || !parsed.path || !parsed.label) {
+      throw new Error(`Manifest line ${index + 1} is missing id, path or label.`);
+    }
     if (!['real', 'ai', 'partial_ai', 'screen_rephoto_ai', 'screen_rephoto_real'].includes(parsed.label)) {
       throw new Error(`Manifest line ${index + 1} has unsupported label ${parsed.label}.`);
     }
@@ -177,7 +181,7 @@ async function parseManifest(manifestPath: string): Promise<ManifestRow[]> {
 
 function providerConfigured(name: string): boolean {
   if (name === 'sightengine') return Boolean(process.env.SIGHTENGINE_API_USER && process.env.SIGHTENGINE_API_SECRET);
-  if (name === 'hive') return Boolean(process.env.HIVE_API_KEY);
+  if (name === 'hive') return Boolean(process.env.HIVE_V3_SECRET_KEY || process.env.HIVE_API_KEY);
   if (name === 'illuminarty') return Boolean(process.env.ILLUMINARTY_API_URL && process.env.ILLUMINARTY_API_KEY);
   return false;
 }
@@ -200,7 +204,7 @@ async function runSample(
   const bytes = await readFile(absolutePath);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   const cacheKey = createHash('sha256')
-    .update(`${sha256}|${thresholds.primaryProvider}|${thresholds.secondaryProvider}|${thresholds.optionalProviderEnabled}`)
+    .update(`${sha256}|${thresholds.pipelineVersion}|${thresholds.primaryProvider}|${thresholds.secondaryProvider}|${thresholds.optionalProviderEnabled}`)
     .digest('hex');
   const cachePath = path.join(cacheDirectory, `${cacheKey}.json`);
   let cached = await readCache(cachePath);
@@ -243,19 +247,13 @@ async function runSample(
     exifUsableFieldCount: 0,
     originInput: 'uploaded',
   };
-  const decision = evaluateVerificationDecision({
-    results: cached.detectors,
-    provenance,
-    screen: cached.screen,
-    thresholds,
-  });
   return {
     id: row.id,
     path: row.path,
     label: row.label,
     generator: row.generator,
     sha256,
-    decision,
+    decision: evaluateVerificationDecision({ results: cached.detectors, provenance, screen: cached.screen, thresholds }),
     screen: cached.screen,
     detectors: cached.detectors,
   };
@@ -270,7 +268,7 @@ function markdownReport(
 ): string {
   const verified = samples.filter(sample => sample.decision.decision === 'verified');
   const rejected = samples.filter(sample => sample.decision.decision === 'rejected');
-  const escalated = samples.filter(sample => sample.decision.decision === 'escalate');
+  const selfDeclared = samples.filter(sample => isAbstention(sample.decision.decision));
   const aiSamples = samples.filter(sample => isAiLabel(sample.label));
   const realSamples = samples.filter(sample => !isAiLabel(sample.label));
   const falseVerified = verified.filter(sample => isAiLabel(sample.label));
@@ -278,12 +276,11 @@ function markdownReport(
   const automatic = verified.length + rejected.length;
   const automaticCorrect = verified.filter(sample => !isAiLabel(sample.label)).length
     + rejected.filter(sample => isAiLabel(sample.label)).length;
-
   const providerRows = Object.entries(providerMetrics).map(([provider, metric]) => (
     `| ${provider} | ${metric.evaluated}/${metric.total} | ${percent(metric.precision)} | ${percent(metric.recall)} | ${percent(metric.falsePositiveRate)} |`
   )).join('\n');
 
-  return `# Humn automated verification benchmark\n\nGenerated: ${new Date().toISOString()}\n\n## Threshold snapshot\n\n\`\`\`json\n${JSON.stringify(thresholds, null, 2)}\n\`\`\`\n\nThese are starting configuration values, not validated claims. Change them only after examining held-out results.\n\n## Dataset\n\n- Total: ${samples.length}\n- AI/partial/screen-AI: ${aiSamples.length}\n- Real/screen-real: ${realSamples.length}\n- VERIFIED: ${verified.length}\n- REJECTED: ${rejected.length}\n- ESCALATE: ${escalated.length} (${percent(divide(escalated.length, samples.length))})\n- Automatic decision coverage: ${percent(divide(automatic, samples.length))}\n- Automatic accuracy among non-escalated cases: ${percent(divide(automaticCorrect, automatic))}\n- **False-verification rate:** ${percent(divide(falseVerified.length, aiSamples.length))} (${falseVerified.length}/${aiSamples.length})\n- **Real-image auto-rejection rate:** ${percent(divide(falseRejected.length, realSamples.length))} (${falseRejected.length}/${realSamples.length})\n\n## Per-detector AI classification\n\n| Detector | Coverage | Precision | Recall | False-positive rate |\n|---|---:|---:|---:|---:|\n${providerRows || '| No configured providers | 0 | n/a | n/a | n/a |'}\n\n## Combined two-detector rule\n\n- Precision of automatic AI rejection: ${percent(combined.precision)}\n- Recall of automatic AI rejection: ${percent(combined.recall)}\n- False-positive rate: ${percent(combined.falsePositiveRate)}\n- Decision coverage: ${percent(combined.coverage)}\n\nESCALATE is treated as abstention, not a correct answer.\n\n## Screen/rephotograph coverage\n\n- Precision: ${percent(screenMetrics.precision)}\n- Recall: ${percent(screenMetrics.recall)}\n- False-positive rate: ${percent(screenMetrics.falsePositiveRate)}\n- Coverage: ${percent(screenMetrics.coverage)}\n\nV1 screen coverage is partial. It combines a provider recapture score with lightweight local periodic-texture, border, reflection and dimension heuristics. It can miss tightly cropped, defocused, high-quality and partial-region recaptures.\n\n## Review before changing thresholds\n\nInspect every false verification and false rejection in \`samples.csv\`. Tune on a training split, then regenerate this report from a held-out test split. Do not publish vendor-claimed accuracy as Humn accuracy.\n`;
+  return `# Humn automated verification benchmark\n\nGenerated: ${new Date().toISOString()}\n\n## Threshold snapshot\n\n\`\`\`json\n${JSON.stringify(thresholds, null, 2)}\n\`\`\`\n\nThese are starting configuration values, not validated claims. Change them only after examining held-out results.\n\n## Dataset\n\n- Total: ${samples.length}\n- AI/partial/screen-AI: ${aiSamples.length}\n- Real/screen-real: ${realSamples.length}\n- VERIFIED: ${verified.length}\n- REJECTED: ${rejected.length}\n- SELF-DECLARED / abstained: ${selfDeclared.length} (${percent(divide(selfDeclared.length, samples.length))})\n- Automatic decision coverage: ${percent(divide(automatic, samples.length))}\n- Automatic accuracy among non-abstained cases: ${percent(divide(automaticCorrect, automatic))}\n- **False-verification rate:** ${percent(divide(falseVerified.length, aiSamples.length))} (${falseVerified.length}/${aiSamples.length})\n- **Real-image auto-rejection rate:** ${percent(divide(falseRejected.length, realSamples.length))} (${falseRejected.length}/${realSamples.length})\n\n## Per-detector AI classification\n\n| Detector | Coverage | Precision | Recall | False-positive rate |\n|---|---:|---:|---:|---:|\n${providerRows || '| No configured providers | 0 | n/a | n/a | n/a |'}\n\n## Combined two-detector rule\n\n- Precision of automatic AI rejection: ${percent(combined.precision)}\n- Recall of automatic AI rejection: ${percent(combined.recall)}\n- False-positive rate: ${percent(combined.falsePositiveRate)}\n- Decision coverage: ${percent(combined.coverage)}\n\nSELF-DECLARED is treated as abstention, not a correct automatic answer.\n\n## Screen/rephotograph coverage\n\n- Precision: ${percent(screenMetrics.precision)}\n- Recall: ${percent(screenMetrics.recall)}\n- False-positive rate: ${percent(screenMetrics.falsePositiveRate)}\n- Coverage: ${percent(screenMetrics.coverage)}\n\nCurrent free-path screen coverage uses the local periodic-texture, border, reflection and dimension heuristic. An optional provider Recapture score is included only when deliberately enabled and present. Coverage remains partial and can miss tightly cropped, defocused, high-quality and partial-region recaptures.\n\n## Review before changing thresholds\n\nInspect every false verification and false rejection in \`samples.csv\`. Tune on a training split, then regenerate this report from a held-out test split. Do not publish vendor-claimed accuracy as Humn accuracy.\n`;
 }
 
 async function main() {
@@ -297,7 +294,7 @@ async function main() {
   const missing = [thresholds.primaryProvider, thresholds.secondaryProvider]
     .filter(provider => !providerConfigured(provider));
   if (missing.length && !allowUnavailable) {
-    throw new Error(`Required detector keys are missing for: ${missing.join(', ')}. Provision them or pass --allow-unavailable only to test escalation behavior.`);
+    throw new Error(`Required detector keys are missing for: ${missing.join(', ')}. Provision them or pass --allow-unavailable only to test SELF-DECLARED fallback behavior.`);
   }
 
   const manifest = await parseManifest(manifestPath);
@@ -330,7 +327,7 @@ async function main() {
 
   const combined = binaryMetrics(
     samples,
-    sample => sample.decision.decision === 'escalate'
+    sample => isAbstention(sample.decision.decision)
       ? null
       : sample.decision.decision === 'rejected',
     sample => isAiLabel(sample.label),
@@ -338,12 +335,12 @@ async function main() {
   const screenMetrics = binaryMetrics(
     samples,
     sample => {
-      const providerRecapture = sample.detectors.some(result => (
+      const optionalProviderRecapture = sample.detectors.some(result => (
         result.status === 'ok'
         && result.recaptureScore !== null
         && result.recaptureScore >= thresholds.recaptureEscalateThreshold
       ));
-      return sample.screen.suspected || providerRecapture;
+      return sample.screen.suspected || optionalProviderRecapture;
     },
     sample => isScreenLabel(sample.label),
   );
