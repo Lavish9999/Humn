@@ -173,3 +173,5 @@ Precision, recall and false-positive rate remain **UNMEASURED** until that bench
 5. Run the labelled benchmark and tune database thresholds only from representative data.
 6. Exercise a preview end-to-end with clean, AI, screen-recapture, provider-failure and normal-user denial cases.
 7. Only then enable creator-facing automated review for launch.
+
+The CI database gate performs both `supabase db reset` and `supabase test db`; a successful run is required before production promotion.
