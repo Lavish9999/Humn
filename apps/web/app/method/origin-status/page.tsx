@@ -6,28 +6,28 @@ import {
 } from '../../../components/provenance-badge';
 
 export const metadata: Metadata = {
-  title: 'How verification works — Humn',
-  description: 'A plain-language guide to Humn’s self-declared, automated-review, and automated-clear origin labels.',
+  title: 'How origin checks work — Humn',
+  description: 'A plain-language guide to Humn’s creator-declared, processing, and origin-check-passed labels.',
 };
 
 const verificationStates = [
   {
     variant: 'unverified' as const,
-    label: 'UNVERIFIED · SELF-DECLARED',
-    heading: 'The creator made the claim.',
-    body: 'The Work was submitted as human-made, but Humn has not cleared it through the automated detector pipeline. This label is neutral: it is not an accusation, endorsement, or automated finding. Uncertain completed reviews return to this state instead of waiting indefinitely for a reviewer.',
+    label: 'CREATOR DECLARED',
+    heading: 'The creator made the origin claim.',
+    body: 'The Work was submitted as human-made, but Humn has not cleared it through the automated origin checks. This label is neutral: it is not an accusation, endorsement, or automated finding. Uncertain completed checks return to this state instead of waiting indefinitely.',
   },
   {
     variant: 'awaiting' as const,
-    label: 'AWAITING AUTOMATED REVIEW',
-    heading: 'The automated review is actively processing.',
-    body: 'Humn has queued or started its detector and provenance checks. AWAITING is a temporary processing state—not a permanent holding area. When the run completes, the Work becomes VERIFIED, REJECTED, or returns to SELF-DECLARED.',
+    label: 'ORIGIN CHECK IN PROGRESS',
+    heading: 'The automated checks are actively processing.',
+    body: 'Humn has queued or started its detector and provenance checks. This is a temporary processing state. When the run completes, the Work passes, fails, or returns to CREATOR DECLARED.',
   },
   {
     variant: 'verified' as const,
-    label: 'VERIFIED · AUTOMATED CLEAR',
+    label: 'ORIGIN CHECK PASSED',
     heading: AUTOMATED_VERIFIED_EXPLANATION,
-    body: 'Two independent content detectors cleared the Work under Humn’s configured thresholds, required AI/deepfake/confidence scores were present, and no blocking integrity or local screen-rephotograph signal was present. This is an automated result. It is not human-reviewed and it is not a guarantee of authorship, originality, copyright ownership, or perfect detector accuracy.',
+    body: 'Two independent content detectors cleared the Work under Humn’s configured thresholds, required AI, deepfake, and confidence results were present, and no blocking integrity or local screen-rephotograph signal was present. This is an automated result. It is not human-reviewed and it is not a guarantee of authorship, originality, copyright ownership, or perfect detector accuracy.',
   },
 ];
 
@@ -37,9 +37,9 @@ export default function OriginStatusPage() {
       <header className="section-head page-first-section">
         <div>
           <div className="eyebrow">Provenance &amp; method</div>
-          <h1>How verification works.</h1>
+          <h1>How origin checks work.</h1>
           <p className="section-intro">
-            Humn labels what its review system has actually established. The labels describe the state of an automated origin review; they do not claim certainty where none exists.
+            Humn labels what its automated review system has actually established. The labels describe the state of an origin check; they do not claim certainty where none exists.
           </p>
         </div>
       </header>
@@ -65,14 +65,22 @@ export default function OriginStatusPage() {
         <h2 id="signals-heading">Multiple signals, not one magic test.</h2>
         <div className="reference-includes">
           <ul>
-            <li>Independent AI-generation and deepfake detector scores.</li>
+            <li>Independent AI-generation and deepfake detector results.</li>
             <li>Original-file integrity, duplicate hashes, Content Credentials, and available camera metadata.</li>
             <li>Partial screen-rephotograph heuristics such as moiré, display-like borders, and reflection patterns.</li>
             <li>Process evidence supplied by the creator as supporting context.</li>
           </ul>
         </div>
         <p className="method-hedge">
-          Every score is a signal, not a verdict by itself. Strong synthetic signals can reject a submission. Disagreement, low confidence, unavailable checks, incomplete scores, duplicate concerns, or suspected screen rephotography do not auto-pass; the Work publishes as SELF-DECLARED instead.
+          Every score is a signal, not a verdict by itself. Strong synthetic signals can fail a submission. Disagreement, low confidence, unavailable checks, incomplete results, duplicate concerns, or suspected screen rephotography do not auto-pass; the Work returns to CREATOR DECLARED instead.
+        </p>
+      </section>
+
+      <section className="style-guide-section" aria-labelledby="public-details-heading">
+        <div className="panel-label">Public and private details</div>
+        <h2 id="public-details-heading">The outcome is public. Vendor scoring is not.</h2>
+        <p>
+          Public Work pages show the origin-check state, pipeline version, evidence digest, and a plain-language limitation. Exact provider identities, model versions, thresholds, confidence values, and detector scores remain available only to the creator and authorized reviewers.
         </p>
       </section>
 
@@ -88,13 +96,13 @@ export default function OriginStatusPage() {
       </section>
 
       <section className="style-guide-section" aria-labelledby="limits-heading">
-        <div className="panel-label">What VERIFIED does not promise</div>
+        <div className="panel-label">What ORIGIN CHECK PASSED does not promise</div>
         <h2 id="limits-heading">Automated clearance is useful, not infallible.</h2>
         <p>
-          A VERIFIED · AUTOMATED CLEAR badge means the Work cleared Humn’s automated origin detectors under the pipeline and thresholds in use at that time. Detectors can make mistakes, new generation methods can evade older models, and rephotographed or partially edited images are especially difficult.
+          ORIGIN CHECK PASSED means the Work cleared Humn’s automated origin checks under the pipeline and thresholds in use at that time. Detectors can make mistakes, new generation methods can evade older models, and rephotographed or partially edited images are especially difficult.
         </p>
         <p>
-          Humn therefore preserves detector results and audit evidence, uses a conservative local screen heuristic, returns uncertain cases to SELF-DECLARED, and avoids describing automated clearance as human verification.
+          Humn therefore preserves detector results and audit evidence, uses a conservative local screen heuristic, returns uncertain cases to CREATOR DECLARED, and avoids describing automated clearance as proof of human authorship.
         </p>
         <div className="actions">
           <Link className="button" href="/method/proof-records">How proof records work</Link>
