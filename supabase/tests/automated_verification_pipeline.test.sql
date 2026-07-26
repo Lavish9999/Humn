@@ -1,5 +1,5 @@
 begin;
-select plan(40);
+select plan(43);
 
 select has_table('public', 'verification_pipeline_config', 'tunable verification config exists');
 select has_table('public', 'verification_pipeline_runs', 'verification run ledger exists');
@@ -14,7 +14,7 @@ select is((select count(*)::integer from public.verification_pipeline_config), 1
 select is((select ai_reject_threshold from public.verification_pipeline_config where singleton), 0.9000::numeric, 'initial strong-AI threshold is explicit');
 select is((select ai_clear_threshold from public.verification_pipeline_config where singleton), 0.1000::numeric, 'initial clear threshold is explicit');
 select is((select min_confidence from public.verification_pipeline_config where singleton), 0.8000::numeric, 'initial confidence threshold is explicit');
-select is((select recapture_escalate_threshold from public.verification_pipeline_config where singleton), 0.5000::numeric, 'recapture escalation threshold is explicit');
+select is((select recapture_escalate_threshold from public.verification_pipeline_config where singleton), 0.5000::numeric, 'optional future recapture threshold remains explicit');
 select is((select local_screen_escalate_threshold from public.verification_pipeline_config where singleton), 0.6000::numeric, 'local screen heuristic threshold is explicit');
 select ok(
   (select lower(primary_provider) <> lower(secondary_provider) from public.verification_pipeline_config where singleton),
@@ -27,7 +27,7 @@ select has_index(
 
 select has_function('public', 'claim_verification_run', array['uuid'], 'service worker claim RPC exists');
 select has_function('public', 'complete_verification_run', array['uuid','text','text','text','text','jsonb','jsonb','jsonb'], 'automated completion RPC exists');
-select has_function('public', 'resolve_escalated_verification', array['uuid','text','text'], 'human escalation resolution RPC exists');
+select has_function('public', 'resolve_escalated_verification', array['uuid','text','text'], 'legacy human escalation resolution RPC remains available');
 select has_function('public', 'get_work_verification_summary', array['uuid'], 'sanitized public verification summary RPC exists');
 
 select ok(has_function_privilege('service_role', 'public.claim_verification_run(uuid)', 'EXECUTE'), 'service role may claim queued detector work');
@@ -62,6 +62,24 @@ select ok(
   'database refuses VERIFIED when a required provider errors'
 );
 select ok(
+  position('nullif(r ->> ''deepfakeScore''::text, ''''::text) IS NOT NULL' in pg_get_functiondef(
+    'public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure
+  )) > 0,
+  'database requires a present deepfake score from each clear provider'
+);
+select ok(
+  position('v_next := ''declared''' in pg_get_functiondef(
+    'public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure
+  )) > 0,
+  'uncertain terminal completion returns the Work to declared SELF-DECLARED status'
+);
+select ok(
+  position('primary recapture score' in lower(pg_get_functiondef(
+    'public.complete_verification_run(uuid,text,text,text,text,jsonb,jsonb,jsonb)'::regprocedure
+  ))) = 0,
+  'completion RPC does not require a primary recapture score'
+);
+select ok(
   position('VERIFIED is awarded only by the automated detector pipeline' in pg_get_functiondef(
     'public.moderate_work(uuid,public.humn_moderation_action,text)'::regprocedure
   )) > 0,
@@ -91,9 +109,9 @@ select has_trigger(
   'public', 'verification_audit_events', 'humn_verification_audit_append_only',
   'verification audit append-only trigger exists'
 );
-select has_trigger(
+select hasnt_trigger(
   'public', 'verification_pipeline_runs', 'humn_verified_requires_recapture_signal',
-  'database blocks VERIFIED when the primary recapture signal is absent'
+  'database no longer requires Recapture for VERIFIED'
 );
 
 set local role authenticated;
