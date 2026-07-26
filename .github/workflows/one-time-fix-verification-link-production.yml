@@ -1,0 +1,41 @@
+name: One-time production verification-link correction
+
+on:
+  push:
+    branches:
+      - fix/verification-explainer-route
+    paths:
+      - .github/workflows/one-time-fix-verification-link-production.yml
+
+permissions:
+  contents: write
+
+jobs:
+  correct-link:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/verification-explainer-route
+          fetch-depth: 0
+      - name: Repoint verification explainer link
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/web/app/work/[id]/page.tsx')
+          source = path.read_text()
+          old = 'href="/style-guide#provenance-method"'
+          new = 'href="/method/origin-status"'
+          count = source.count(old)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one old verification link, found {count}.')
+          path.write_text(source.replace(old, new, 1))
+          PY
+          rm .github/workflows/one-time-fix-verification-link-production.yml
+          git config user.name "Humn maintenance"
+          git config user.email "robbieyisa@gmail.com"
+          git add 'apps/web/app/work/[id]/page.tsx' .github/workflows/one-time-fix-verification-link-production.yml
+          git commit -m "Point verification link to public explainer"
+          git push origin HEAD:fix/verification-explainer-route
