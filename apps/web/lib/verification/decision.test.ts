@@ -57,19 +57,17 @@ function detector(role: 'primary' | 'secondary', aiScore: number): DetectorResul
     aiScore,
     authenticScore: 1 - aiScore,
     confidence: Math.abs(aiScore - 0.5) * 2,
-    recaptureScore: role === 'primary' ? 0.05 : null,
+    recaptureScore: null,
     deepfakeScore: 0.02,
     partialAiScore: null,
-    contentFlags: role === 'primary'
-      ? { recapture_status: 'ok' }
-      : {},
+    contentFlags: { recapture_enabled: false, recapture_status: 'disabled' },
     rawResponse: {},
     errorCode: null,
     latencyMs: 10,
   };
 }
 
-test('clean camera-style result requires two independent clears before VERIFIED', () => {
+test('clean result requires two independent clears before VERIFIED without recapture', () => {
   const result = evaluateVerificationDecision({
     results: [detector('primary', 0.04), detector('secondary', 0.03)],
     provenance,
@@ -92,7 +90,7 @@ test('a strong AI result from either required detector rejects', () => {
   assert.equal(result.reasonCode, 'STRONG_SYNTHETIC_SIGNAL');
 });
 
-test('AI image photographed from a screen escalates instead of auto-clearing', () => {
+test('AI image photographed from a screen returns to SELF-DECLARED instead of auto-clearing', () => {
   const screen: ScreenHeuristicResult = {
     ...cleanScreen,
     score: 0.82,
@@ -105,11 +103,11 @@ test('AI image photographed from a screen escalates instead of auto-clearing', (
     screen,
     thresholds,
   });
-  assert.equal(result.decision, 'escalate');
+  assert.equal(result.decision, 'self_declared');
   assert.equal(result.reasonCode, 'SCREEN_REPHOTOGRAPH_SUSPECTED');
 });
 
-test('missing primary recapture signal escalates instead of silently clearing', () => {
+test('missing recapture is neutral and does not block a positive two-provider clear', () => {
   const primary = detector('primary', 0.04);
   primary.recaptureScore = null;
   primary.contentFlags = {
@@ -122,17 +120,18 @@ test('missing primary recapture signal escalates instead of silently clearing', 
     screen: cleanScreen,
     thresholds,
   });
-  assert.equal(result.decision, 'escalate');
-  assert.equal(result.reasonCode, 'RECAPTURE_SIGNAL_UNAVAILABLE');
-  assert.match(result.uncertaintySignals.join(' '), /recapture signal unavailable/);
+  assert.equal(result.decision, 'verified');
+  assert.equal(result.reasonCode, 'TWO_DETECTOR_CLEAR');
+  assert.doesNotMatch(result.uncertaintySignals.join(' '), /recapture signal unavailable/);
 });
 
-test('required provider timeout escalates and never defaults to VERIFIED', () => {
+test('required provider timeout publishes SELF-DECLARED and never defaults to VERIFIED', () => {
   const secondary = detector('secondary', 0.03);
   secondary.status = 'timeout';
   secondary.aiScore = null;
   secondary.authenticScore = null;
   secondary.confidence = null;
+  secondary.deepfakeScore = null;
   secondary.errorCode = 'PROVIDER_TIMEOUT';
   const result = evaluateVerificationDecision({
     results: [detector('primary', 0.02), secondary],
@@ -140,28 +139,41 @@ test('required provider timeout escalates and never defaults to VERIFIED', () =>
     screen: cleanScreen,
     thresholds,
   });
-  assert.equal(result.decision, 'escalate');
+  assert.equal(result.decision, 'self_declared');
   assert.equal(result.reasonCode, 'REQUIRED_PROVIDER_UNAVAILABLE');
 });
 
-test('detector disagreement remains escalated', () => {
+test('detector disagreement remains SELF-DECLARED', () => {
   const result = evaluateVerificationDecision({
     results: [detector('primary', 0.05), detector('secondary', 0.55)],
     provenance,
     screen: cleanScreen,
     thresholds,
   });
-  assert.equal(result.decision, 'escalate');
+  assert.equal(result.decision, 'self_declared');
   assert.equal(result.reasonCode, 'LOW_DETECTOR_CONFIDENCE');
 });
 
-test('duplicate original hash escalates but does not fabricate an AI verdict', () => {
+test('duplicate original hash remains SELF-DECLARED without fabricating an AI verdict', () => {
   const result = evaluateVerificationDecision({
     results: [detector('primary', 0.03), detector('secondary', 0.02)],
     provenance: { ...provenance, duplicateHash: true },
     screen: cleanScreen,
     thresholds,
   });
-  assert.equal(result.decision, 'escalate');
+  assert.equal(result.decision, 'self_declared');
   assert.equal(result.reasonCode, 'DUPLICATE_ORIGINAL_HASH');
+});
+
+test('missing deepfake score prevents VERIFIED and returns SELF-DECLARED', () => {
+  const primary = detector('primary', 0.03);
+  primary.deepfakeScore = null;
+  const result = evaluateVerificationDecision({
+    results: [primary, detector('secondary', 0.02)],
+    provenance,
+    screen: cleanScreen,
+    thresholds,
+  });
+  assert.equal(result.decision, 'self_declared');
+  assert.equal(result.reasonCode, 'REQUIRED_SCORE_MISSING');
 });
