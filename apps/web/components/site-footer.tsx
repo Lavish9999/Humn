@@ -10,12 +10,12 @@ const columns = [
 
 export function SiteFooter() {
   return <footer className="site-footer" aria-label="Site footer">
-    <div className="shell footer-grid">
+    <nav className="shell footer-grid" aria-label="Footer navigation">
       {columns.map(([heading, links]) => <section className="footer-column" key={heading}>
         <div className="meta">{heading}</div>
         <div className="footer-links">{links.map(([label, href]) => <Link href={href} key={label}>{label}</Link>)}</div>
       </section>)}
-    </div>
+    </nav>
     <div className="footer-bottom"><div className="shell footer-bottom-inner"><span className="footer-wordmark">{productConfig.name}</span><p>Verification reflects available origin evidence and automated review; it is never presented as an absolute guarantee.</p></div></div>
   </footer>;
 }
